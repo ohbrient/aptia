@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Users, CheckCircle, Clock, AlertCircle, X, Download, UserPlus, Mail, Send, RefreshCw } from 'lucide-react';
+import { Search, Users, CheckCircle, Clock, AlertCircle, X, Download, UserPlus, Mail, Send, RefreshCw, FileText } from 'lucide-react';
 import api from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
 
@@ -136,7 +136,15 @@ function ModalCandidato({ candidato: c, onClose }) {
               </button>
             )}
             {c.estado === 'completado' && (
-              <button onClick={()=>generarPDF(c)} className="btn-primary py-2 px-4 text-xs">
+              <button
+                onClick={() => window.open(`/rrhh/reporte/${c.id}`, '_blank')}
+                className="btn-primary py-2 px-4 text-xs flex items-center gap-1"
+              >
+                <FileText className="w-3.5 h-3.5"/> Reporte PDF
+              </button>
+            )}
+            {c.estado === 'completado' && (
+              <button onClick={()=>generarPDF(c)} className="btn-secondary py-2 px-4 text-xs">
                 <Download className="w-3.5 h-3.5"/> PDF
               </button>
             )}

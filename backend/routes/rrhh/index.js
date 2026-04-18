@@ -5,6 +5,20 @@ const { auth, checkRol } = require('../../middleware/auth');
 
 router.use(auth, checkRol('rrhh'));
 
+
+// ── Helper: registrar actividad ──────────────────────────────
+async function logActividad(db, empresa_rrhh_id, usuario, tipo, descripcion, metadata = {}) {
+  try {
+    await db.query(
+      `INSERT INTO activity_log (empresa_rrhh_id, usuario_id, usuario_nombre, tipo, descripcion, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [empresa_rrhh_id, usuario?.id || null, usuario?.nombre || 'Sistema', tipo, descripcion, JSON.stringify(metadata)]
+    );
+  } catch(err) {
+    console.error('[log]', err.message);
+  }
+}
+
 // ── GET /api/rrhh/dashboard ──────────────────────────────────
 router.get('/dashboard', async (req, res) => {
   const { empresa_rrhh_id } = req.user;
@@ -90,6 +104,9 @@ router.post('/empresas-cliente', async (req, res) => {
       [empresa.id, admin_nombre || nombre, admin_email.toLowerCase(), hash]
     );
     await client.query('COMMIT');
+    await logActividad(db, empresa_rrhh_id, req.user, 'empresa_creada',
+      `Empresa cliente "${nombre}" registrada`,
+      { empresa_id: empresa.id });
     res.status(201).json(empresa);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -205,6 +222,9 @@ router.post('/procesos', async (req, res) => {
       [empresa_rrhh_id]
     );
     await client.query('COMMIT');
+    await logActividad(db, empresa_rrhh_id, req.user, 'proceso_creado',
+      `Proceso "${nombre}" creado${puesto ? ` para el puesto de ${puesto}` : ''}`,
+      { proceso_id: proceso.id });
     res.status(201).json(proceso);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -277,6 +297,11 @@ router.post('/procesos/:id/candidatos', async (req, res) => {
         </div>`,
       });
     } catch {}
+  }
+  if (creados.length > 0) {
+    await logActividad(db, empresa_rrhh_id, req.user, 'candidatos_invitados',
+      `Se invitaron ${creados.length} candidato(s) al proceso "${proceso.nombre}"`,
+      { proceso_id: req.params.id, cantidad: creados.length });
   }
   res.status(201).json({ invitados: creados.length, candidatos: creados });
 });
@@ -793,7 +818,11 @@ router.post('/usuarios', async (req, res) => {
 
 // ── PUT /api/rrhh/usuarios/:id ───────────────────────────────
 router.put('/usuarios/:id', async (req, res) => {
-  const { empresa_rrhh_id } = req.user;
+  const { empresa_rrhh_id, id: userId, sub_rol } = req.user;
+  // Solo admins pueden editar usuarios
+  if (sub_rol !== 'admin') return res.status(403).json({ error: 'Solo administradores pueden editar usuarios' });
+  // No puede editarse a sí mismo los permisos
+  if (req.params.id === userId) return res.status(400).json({ error: 'No puedes editar tu propio usuario desde aquí' });
   const { nombre, email, password, permisos, activo } = req.body;
   try {
     // Verificar que pertenece a esta empresa
@@ -838,6 +867,333 @@ router.delete('/usuarios/:id', async (req, res) => {
     await db.query('DELETE FROM usuarios_rrhh WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
   } catch(err) { res.status(500).json({ error: 'Error al eliminar usuario' }); }
+});
+
+// ── DELETE /api/rrhh/empresas-cliente/:id ────────────────────
+router.delete('/empresas-cliente/:id', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  try {
+    const { rows: [ec] } = await db.query(
+      'SELECT id, nombre FROM empresas_cliente WHERE id=$1 AND empresa_rrhh_id=$2',
+      [req.params.id, empresa_rrhh_id]
+    );
+    if (!ec) return res.status(404).json({ error: 'Empresa no encontrada' });
+
+    // Eliminar en cascada
+    const { rows: procesos } = await db.query(
+      'SELECT id FROM procesos WHERE empresa_cliente_id=$1', [req.params.id]
+    );
+    for (const p of procesos) {
+      await db.query('DELETE FROM proceso_pruebas WHERE proceso_id=$1', [p.id]);
+      const { rows: cands } = await db.query('SELECT id FROM candidatos WHERE proceso_id=$1', [p.id]);
+      for (const c of cands) {
+        await db.query('DELETE FROM respuestas WHERE sesion_id IN (SELECT id FROM sesiones_prueba WHERE candidato_id=$1)', [c.id]);
+        await db.query('DELETE FROM resultados WHERE sesion_id IN (SELECT id FROM sesiones_prueba WHERE candidato_id=$1)', [c.id]);
+        await db.query('DELETE FROM sesiones_prueba WHERE candidato_id=$1', [c.id]);
+        await db.query('DELETE FROM informes WHERE candidato_id=$1', [c.id]);
+      }
+      await db.query('DELETE FROM candidatos WHERE proceso_id=$1', [p.id]);
+    }
+    await db.query('DELETE FROM procesos WHERE empresa_cliente_id=$1', [req.params.id]);
+    await db.query('DELETE FROM usuarios_empresa WHERE empresa_cliente_id=$1', [req.params.id]);
+    await db.query('DELETE FROM empresas_cliente WHERE id=$1', [req.params.id]);
+
+    res.json({ ok: true });
+  } catch(err) {
+    console.error('[DELETE empresa-cliente]', err.message);
+    res.status(500).json({ error: 'Error al eliminar empresa' });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+// SUB-LICENCIAS POR EMPRESA CLIENTE
+// ══════════════════════════════════════════════════════════════
+
+// ── GET /api/rrhh/empresas-cliente/:id/sublicencia ───────────
+router.get('/empresas-cliente/:id/sublicencia', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  try {
+    const { rows: [sub] } = await db.query(`
+      SELECT s.*,
+        ec.nombre AS empresa_nombre,
+        s.candidatos_asignados - s.candidatos_usados AS disponibles
+      FROM sublicencias s
+      JOIN empresas_cliente ec ON ec.id = s.empresa_cliente_id
+      WHERE s.empresa_cliente_id = $1 AND s.empresa_rrhh_id = $2
+      ORDER BY s.created_at DESC LIMIT 1
+    `, [req.params.id, empresa_rrhh_id]);
+    res.json(sub || null);
+  } catch(err) { res.status(500).json({ error: 'Error al obtener sublicencia' }); }
+});
+
+// ── POST /api/rrhh/empresas-cliente/:id/sublicencia ──────────
+router.post('/empresas-cliente/:id/sublicencia', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  const { candidatos_asignados, fecha_vencimiento } = req.body;
+
+  if (!candidatos_asignados || candidatos_asignados < 1)
+    return res.status(400).json({ error: 'Debes asignar al menos 1 candidato' });
+
+  try {
+    // Verificar que la empresa cliente pertenece al RRHH
+    const { rows: [ec] } = await db.query(
+      'SELECT id FROM empresas_cliente WHERE id=$1 AND empresa_rrhh_id=$2',
+      [req.params.id, empresa_rrhh_id]
+    );
+    if (!ec) return res.status(403).json({ error: 'No autorizado' });
+
+    // Verificar disponibilidad en licencia RRHH
+    const { rows: [lic] } = await db.query(`
+      SELECT COALESCE(SUM(candidatos_total - candidatos_usados), 0) AS disponibles
+      FROM licencias
+      WHERE empresa_rrhh_id=$1 AND activa=true AND fecha_vencimiento >= CURRENT_DATE
+    `, [empresa_rrhh_id]);
+
+    // Calcular cuánto ya está asignado a otras sub-licencias activas
+    const { rows: [asignado] } = await db.query(`
+      SELECT COALESCE(SUM(candidatos_asignados - candidatos_usados), 0) AS total_asignado
+      FROM sublicencias
+      WHERE empresa_rrhh_id=$1 AND activa=true AND empresa_cliente_id != $2
+    `, [empresa_rrhh_id, req.params.id]);
+
+    const pool_disponible = parseInt(lic.disponibles) - parseInt(asignado.total_asignado);
+
+    if (candidatos_asignados > pool_disponible)
+      return res.status(400).json({
+        error: `Solo tienes ${pool_disponible} candidatos disponibles para asignar`
+      });
+
+    // Crear o actualizar sublicencia
+    const { rows: [sub] } = await db.query(`
+      INSERT INTO sublicencias (empresa_cliente_id, empresa_rrhh_id, candidatos_asignados, fecha_vencimiento, activa)
+      VALUES ($1, $2, $3, $4, true)
+      ON CONFLICT (empresa_cliente_id, empresa_rrhh_id) DO UPDATE
+        SET candidatos_asignados = $3,
+            fecha_vencimiento = $4,
+            activa = true,
+            updated_at = NOW()
+      RETURNING *
+    `, [req.params.id, empresa_rrhh_id, candidatos_asignados, fecha_vencimiento || null]);
+
+    res.status(201).json(sub);
+  } catch(err) {
+    console.error('[POST sublicencia]', err.message);
+    res.status(500).json({ error: 'Error al crear sublicencia' });
+  }
+});
+
+// ── DELETE /api/rrhh/empresas-cliente/:id/sublicencia ────────
+router.delete('/empresas-cliente/:id/sublicencia', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  try {
+    await db.query(
+      'UPDATE sublicencias SET activa=false WHERE empresa_cliente_id=$1 AND empresa_rrhh_id=$2',
+      [req.params.id, empresa_rrhh_id]
+    );
+    res.json({ ok: true });
+  } catch(err) { res.status(500).json({ error: 'Error al revocar sublicencia' }); }
+});
+
+// ══════════════════════════════════════════════════════════════
+// MAPA DE TALENTO
+// ══════════════════════════════════════════════════════════════
+
+// ── GET /api/rrhh/mapa-talento ───────────────────────────────
+router.get('/mapa-talento', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  const { proceso_id, empresa_cliente_id, prueba_tipo } = req.query;
+  try {
+    let where = `ec.empresa_rrhh_id = $1 AND c.estado = 'completado'`;
+    const params = [empresa_rrhh_id];
+    let idx = 2;
+
+    if (proceso_id) {
+      where += ` AND p.id = $${idx++}`;
+      params.push(proceso_id);
+    }
+    if (empresa_cliente_id) {
+      where += ` AND ec.id = $${idx++}`;
+      params.push(empresa_cliente_id);
+    }
+
+    const { rows } = await db.query(`
+      SELECT
+        c.id, c.nombre, c.apellido, c.email,
+        p.nombre AS proceso_nombre, p.puesto,
+        ec.nombre AS empresa_nombre,
+        pr.nombre AS prueba_nombre, pr.tipo AS prueba_tipo,
+        json_agg(
+          json_build_object(
+            'dimension', d.nombre,
+            'codigo', d.codigo,
+            'puntaje', res.puntaje_pct
+          ) ORDER BY d.orden
+        ) FILTER (WHERE d.id IS NOT NULL) AS resultados
+      FROM candidatos c
+      JOIN procesos p ON p.id = c.proceso_id
+      JOIN empresas_cliente ec ON ec.id = p.empresa_cliente_id
+      JOIN sesiones_prueba sp ON sp.candidato_id = c.id
+      JOIN pruebas pr ON pr.id = sp.prueba_id
+      JOIN resultados res ON res.sesion_id = sp.id
+      JOIN dimensiones d ON d.id = res.dimension_id
+      WHERE ${where}
+      ${prueba_tipo ? `AND pr.tipo = '${prueba_tipo}'` : ''}
+      GROUP BY c.id, p.nombre, p.puesto, ec.nombre, pr.nombre, pr.tipo
+      ORDER BY c.created_at DESC
+    `, params);
+    res.json(rows);
+  } catch(err) {
+    console.error('[mapa-talento]', err.message);
+    res.status(500).json({ error: 'Error al obtener mapa de talento' });
+  }
+});
+
+// ── GET /api/rrhh/candidatos/:id/reporte-pdf ─────────────────
+router.get('/candidatos/:id/reporte-pdf', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  try {
+    const { rows: [data] } = await db.query(`
+      SELECT
+        c.*,
+        p.nombre AS proceso_nombre, p.puesto,
+        ec.nombre AS empresa_cliente_nombre,
+        e.nombre AS empresa_rrhh_nombre,
+        json_agg(DISTINCT jsonb_build_object(
+          'prueba_nombre', pr.nombre,
+          'prueba_tipo', pr.tipo,
+          'dimension', d.nombre,
+          'codigo', d.codigo,
+          'puntaje', res.puntaje_pct,
+          'nivel', res.nivel
+        )) FILTER (WHERE d.id IS NOT NULL) AS resultados,
+        inf.contenido_texto AS informe
+      FROM candidatos c
+      JOIN procesos p ON p.id = c.proceso_id
+      JOIN empresas_cliente ec ON ec.id = p.empresa_cliente_id
+      JOIN empresas_rrhh e ON e.id = ec.empresa_rrhh_id
+      LEFT JOIN sesiones_prueba sp ON sp.candidato_id = c.id
+      LEFT JOIN pruebas pr ON pr.id = sp.prueba_id
+      LEFT JOIN resultados res ON res.sesion_id = sp.id
+      LEFT JOIN dimensiones d ON d.id = res.dimension_id
+      LEFT JOIN informes inf ON inf.candidato_id = c.id
+      WHERE c.id = $1 AND e.id = $2
+      GROUP BY c.id, p.nombre, p.puesto, ec.nombre, e.nombre, inf.contenido_texto
+    `, [req.params.id, empresa_rrhh_id]);
+
+    if (!data) return res.status(404).json({ error: 'Candidato no encontrado' });
+    res.json(data);
+  } catch(err) {
+    console.error('[reporte-pdf]', err.message);
+    res.status(500).json({ error: 'Error al obtener datos del reporte' });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+// LOG DE ACTIVIDAD
+// ══════════════════════════════════════════════════════════════
+
+// ── GET /api/rrhh/actividad ──────────────────────────────────
+router.get('/actividad', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  const { page = 1, tipo, limite = 50 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(limite);
+  try {
+    let where = 'WHERE empresa_rrhh_id = $1';
+    const params = [empresa_rrhh_id];
+    if (tipo) { where += ` AND tipo = $${params.length + 1}`; params.push(tipo); }
+
+    const { rows } = await db.query(`
+      SELECT * FROM activity_log
+      ${where}
+      ORDER BY created_at DESC
+      LIMIT ${parseInt(limite)} OFFSET ${offset}
+    `, params);
+
+    const { rows: [{ total }] } = await db.query(
+      `SELECT COUNT(*) AS total FROM activity_log ${where}`, params
+    );
+
+    res.json({ logs: rows, total: parseInt(total), page: parseInt(page) });
+  } catch(err) {
+    console.error('[actividad]', err.message);
+    res.status(500).json({ error: 'Error al obtener actividad' });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+// ONBOARDING
+// ══════════════════════════════════════════════════════════════
+
+// ── GET /api/rrhh/onboarding-status ─────────────────────────
+router.get('/onboarding-status', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  try {
+    const { rows: [empresa] } = await db.query(
+      'SELECT onboarding_completado, nombre, sector, pais FROM empresas_rrhh WHERE id=$1',
+      [empresa_rrhh_id]
+    );
+    res.json({ completado: empresa?.onboarding_completado || false, empresa });
+  } catch(err) { res.status(500).json({ error: 'Error' }); }
+});
+
+// ── PUT /api/rrhh/onboarding-perfil ──────────────────────────
+router.put('/onboarding-perfil', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  const { nombre, sector, pais, ciudad, telefono, sitio_web } = req.body;
+  try {
+    const { rows: [empresa] } = await db.query(
+      `UPDATE empresas_rrhh SET nombre=$1, sector=$2, pais=$3, ciudad=$4, telefono=$5, sitio_web=$6
+       WHERE id=$7 RETURNING *`,
+      [nombre, sector, pais, ciudad, telefono, sitio_web, empresa_rrhh_id]
+    );
+    res.json(empresa);
+  } catch(err) { res.status(500).json({ error: 'Error al actualizar perfil' }); }
+});
+
+// ── POST /api/rrhh/onboarding-completar ──────────────────────
+router.post('/onboarding-completar', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  try {
+    await db.query(
+      'UPDATE empresas_rrhh SET onboarding_completado=true WHERE id=$1',
+      [empresa_rrhh_id]
+    );
+    await logActividad(db, empresa_rrhh_id, req.user, 'onboarding_completado',
+      'Onboarding completado exitosamente', {});
+    res.json({ ok: true });
+  } catch(err) { res.status(500).json({ error: 'Error' }); }
+});
+
+// ── DELETE /api/rrhh/procesos/:id ────────────────────────────
+router.delete('/procesos/:id', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  try {
+    const { rows: [proceso] } = await db.query(`
+      SELECT p.id, p.nombre FROM procesos p
+      JOIN empresas_cliente ec ON ec.id = p.empresa_cliente_id
+      WHERE p.id = $1 AND ec.empresa_rrhh_id = $2
+    `, [req.params.id, empresa_rrhh_id]);
+    if (!proceso) return res.status(404).json({ error: 'Proceso no encontrado' });
+
+    await db.query('DELETE FROM proceso_pruebas WHERE proceso_id=$1', [req.params.id]);
+    const { rows: cands } = await db.query('SELECT id FROM candidatos WHERE proceso_id=$1', [req.params.id]);
+    for (const c of cands) {
+      await db.query('DELETE FROM respuestas WHERE sesion_id IN (SELECT id FROM sesiones_prueba WHERE candidato_id=$1)', [c.id]);
+      await db.query('DELETE FROM resultados WHERE sesion_id IN (SELECT id FROM sesiones_prueba WHERE candidato_id=$1)', [c.id]);
+      await db.query('DELETE FROM sesiones_prueba WHERE candidato_id=$1', [c.id]);
+      await db.query('DELETE FROM informes WHERE candidato_id=$1', [c.id]);
+    }
+    await db.query('DELETE FROM candidatos WHERE proceso_id=$1', [req.params.id]);
+    await db.query('DELETE FROM procesos WHERE id=$1', [req.params.id]);
+
+    await logActividad(db, empresa_rrhh_id, req.user, 'proceso_eliminado',
+      `Proceso "${proceso.nombre}" eliminado`, { proceso_id: req.params.id });
+
+    res.json({ ok: true });
+  } catch(err) {
+    console.error('[DELETE proceso]', err.message);
+    res.status(500).json({ error: 'Error al eliminar proceso' });
+  }
 });
 
 module.exports = router;

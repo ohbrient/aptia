@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, X, Pencil, Trash2, Shield, User, CheckCircle, XCircle, Key } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
 
@@ -32,6 +33,7 @@ function ModalUsuario({ usuario, onClose, onSave }) {
   const togglePermiso = (k) => {
     const nuevos = { ...form.permisos };
     if (k === 'administrador' && !nuevos.administrador) {
+      // Al activar admin, activar todos
       Object.keys(nuevos).forEach(p => nuevos[p] = true);
     } else if (k === 'administrador' && nuevos.administrador) {
       nuevos.administrador = false;
@@ -144,7 +146,8 @@ function ModalUsuario({ usuario, onClose, onSave }) {
 // ── Página principal ──────────────────────────────────────────
 export default function UsuariosRRHH() {
   const qc = useQueryClient();
-  const [modalUsuario, setModalUsuario] = useState(null);
+  const { user: currentUser } = useAuth();
+  const [modalUsuario, setModalUsuario] = useState(null); // null=cerrado, false=nuevo, obj=editar
   const [eliminando,   setEliminando]   = useState(null);
 
   const { data: usuarios=[], isLoading } = useQuery({
@@ -233,10 +236,15 @@ export default function UsuariosRRHH() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-1">
-                        <button onClick={() => setModalUsuario(u)} className="p-1.5 text-brand-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg">
-                          <Pencil className="w-4 h-4"/>
-                        </button>
-                        {u.rol !== 'admin' && (
+                        {u.id !== currentUser?.id && (
+                          <button onClick={() => setModalUsuario(u)} className="p-1.5 text-brand-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg" title="Editar">
+                            <Pencil className="w-4 h-4"/>
+                          </button>
+                        )}
+                        {u.id === currentUser?.id && (
+                          <span className="text-xs text-slate-300 px-2">Tú</span>
+                        )}
+                        {u.rol !== 'admin' && u.id !== currentUser?.id && (
                           <button onClick={() => setEliminando(u)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
                             <Trash2 className="w-4 h-4"/>
                           </button>

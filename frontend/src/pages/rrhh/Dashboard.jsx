@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, LineChart, Line,
@@ -30,6 +31,19 @@ function KPI({ label, value, sub, color = 'text-slate-800', icon: Icon }) {
 export default function RrhhDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // Verificar si el onboarding fue completado
+  const { data: onboarding } = useQuery({
+    queryKey: ['rrhh-onboarding'],
+    queryFn: () => api.get('/rrhh/onboarding-status').then(r => r.data),
+    staleTime: 1000 * 60 * 5,
+  });
+
+  useEffect(() => {
+    if (onboarding && onboarding.completado === false) {
+      navigate('/rrhh/onboarding');
+    }
+  }, [onboarding, navigate]);
 
   const { data: dash } = useQuery({
     queryKey: ['rrhh-dashboard'],

@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, X, ClipboardList, Mail, Building2, BarChart2 } from 'lucide-react';
+import { Plus, X, ClipboardList, Mail, Building2, Trash2 } from 'lucide-react';
 import api from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
 
@@ -58,35 +57,26 @@ function ModalProceso({ clientes, pruebas, onClose, onSave }) {
         {/* Paso 1: Seleccionar cliente */}
         {step===1&&(
           <div className="p-6">
-            <p className="text-sm text-slate-500 mb-4">¿Para qué empresa es este proceso?</p>
-            <div className="space-y-2">
-              {/* Proceso propio */}
-              <label className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-all ${form.empresa_cliente_id==='propio'?'border-brand-400 bg-brand-50':'border-slate-200 hover:border-slate-300'}`}>
-                <input type="radio" name="cliente" checked={form.empresa_cliente_id==='propio'} onChange={()=>set('empresa_cliente_id','propio')} className="w-4 h-4 text-brand-600"/>
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-slate-800">Proceso propio</p>
-                  <p className="text-xs text-slate-400">Reclutamiento interno de tu empresa RRHH</p>
-                </div>
-                <span className="badge-blue">Interno</span>
-              </label>
-              {clientes.length>0&&(
-                <div className="flex items-center gap-2 py-1">
-                  <div className="flex-1 h-px bg-slate-100"/>
-                  <span className="text-xs text-slate-400">o selecciona un cliente</span>
-                  <div className="flex-1 h-px bg-slate-100"/>
-                </div>
-              )}
-              {clientes.map(c=>(
-                <label key={c.id} className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-all ${form.empresa_cliente_id===c.id?'border-brand-400 bg-brand-50':'border-slate-200 hover:border-slate-300'}`}>
-                  <input type="radio" name="cliente" checked={form.empresa_cliente_id===c.id} onChange={()=>set('empresa_cliente_id',c.id)} className="w-4 h-4 text-brand-600"/>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-slate-800">{c.nombre}</p>
-                    <p className="text-xs text-slate-400">{c.sector||'—'} · {c.total_candidatos||0} candidatos evaluados</p>
-                  </div>
-                  <span className={c.activo?'badge-green':'badge-gray'}>{c.activo?'Activa':'Inactiva'}</span>
-                </label>
-              ))}
-            </div>
+            <p className="text-sm text-slate-500 mb-4">¿Para qué empresa cliente es este proceso?</p>
+            {clientes.length===0?(
+              <div className="text-center py-8">
+                <Building2 className="w-10 h-10 text-slate-200 mx-auto mb-2"/>
+                <p className="text-sm text-slate-400">No hay empresas cliente registradas.</p>
+              </div>
+            ):(
+              <div className="space-y-2">
+                {clientes.map(c=>(
+                  <label key={c.id} className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-all ${form.empresa_cliente_id===c.id?'border-brand-400 bg-brand-50':'border-slate-200 hover:border-slate-300'}`}>
+                    <input type="radio" name="cliente" checked={form.empresa_cliente_id===c.id} onChange={()=>set('empresa_cliente_id',c.id)} className="w-4 h-4 text-brand-600"/>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-slate-800">{c.nombre}</p>
+                      <p className="text-xs text-slate-400">{c.sector||'—'} · {c.total_candidatos||0} candidatos evaluados</p>
+                    </div>
+                    <span className={c.activo?'badge-green':'badge-gray'}>{c.activo?'Activa':'Inactiva'}</span>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -299,52 +289,6 @@ function ModalInvitar({ proceso, onClose, onSave }) {
 }
 
 
-// ── Tarjeta candidato con copy link ──────────────────────────
-function CandidatoCard({ candidato: c, est }) {
-  const [copiado, setCopiado] = useState(false);
-  const APP_URL = window.location.origin;
-  const link = `${APP_URL}/evaluacion/${c.token_acceso}`;
-
-  const copiar = () => {
-    navigator.clipboard.writeText(link).then(()=>{
-      setCopiado(true);
-      setTimeout(()=>setCopiado(false), 2000);
-    });
-  };
-
-  return (
-    <div className="bg-white rounded-xl border border-slate-100 overflow-hidden">
-      <div className="flex items-center gap-3 px-4 py-2.5">
-        <div className="w-7 h-7 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
-          {c.nombre[0]}{c.apellido?.[0]||''}
-        </div>
-        <div className="flex-1">
-          <p className="text-sm font-semibold text-slate-800">{c.nombre} {c.apellido}</p>
-          <p className="text-xs text-slate-400">{c.email}</p>
-        </div>
-        <span className={est.cls}>{est.label}</span>
-        {c.fecha_completado&&(
-          <span className="text-xs text-slate-400">{new Date(c.fecha_completado).toLocaleDateString('es-DO')}</span>
-        )}
-        <button
-          onClick={copiar}
-          title="Copiar link de evaluación"
-          className={`text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1 flex-shrink-0 ${copiado?'bg-emerald-100 text-emerald-700':'bg-slate-100 text-slate-600 hover:bg-brand-50 hover:text-brand-700'}`}
-        >
-          {copiado?'✓':'📋'} {copiado?'Copiado':'Link'}
-        </button>
-      </div>
-      {c.estado==='pendiente'&&(
-        <div className="px-4 pb-2.5">
-          <div className="bg-slate-50 rounded-lg px-3 py-1.5">
-            <span className="text-xs text-slate-400 font-mono break-all">{link}</span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Fila proceso expandible ───────────────────────────────────
 const ESTADO_CANDIDATO = {
   completado:  { label:'Completado',  cls:'badge-green'  },
@@ -353,7 +297,7 @@ const ESTADO_CANDIDATO = {
   expirado:    { label:'Expirado',    cls:'badge-gray'   },
 };
 
-function ProcesoRow({ proceso, onInvitar }) {
+function ProcesoRow({ proceso, onInvitar, onEliminar }) {
   const [open, setOpen] = useState(false);
   const { data: candidatos=[] } = useQuery({
     queryKey: ['rrhh-proceso-candidatos', proceso.id],
@@ -394,19 +338,13 @@ function ProcesoRow({ proceso, onInvitar }) {
           {proceso.fecha_limite?new Date(proceso.fecha_limite).toLocaleDateString('es-DO'):'—'}
         </td>
         <td className="px-5 py-4">
-          <div className="flex items-center gap-1.5">
+          <div className="flex gap-2 items-center">
             <button onClick={()=>onInvitar(proceso)} className="btn-primary py-1.5 px-3 text-xs">
               <Mail className="w-3.5 h-3.5"/> Invitar
             </button>
-            {parseInt(proceso.completados) > 0 && (
-              <button
-                onClick={()=>navigate(`/rrhh/procesos/${proceso.id}/comparar`)}
-                title="Comparar candidatos"
-                className="btn-secondary py-1.5 px-3 text-xs"
-              >
-                <BarChart2 className="w-3.5 h-3.5"/> Comparar
-              </button>
-            )}
+            <button onClick={()=>onEliminar(proceso)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar proceso">
+              <Trash2 className="w-3.5 h-3.5"/>
+            </button>
           </div>
         </td>
       </tr>
@@ -421,7 +359,19 @@ function ProcesoRow({ proceso, onInvitar }) {
                 {candidatos.map(c=>{
                   const est=ESTADO_CANDIDATO[c.estado]||{label:c.estado,cls:'badge-gray'};
                   return (
-                    <CandidatoCard key={c.id} candidato={c} est={est} />
+                    <div key={c.id} className="flex items-center gap-3 bg-white rounded-xl px-4 py-2.5 border border-slate-100">
+                      <div className="w-7 h-7 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                        {c.nombre[0]}{c.apellido?.[0]||''}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-slate-800">{c.nombre} {c.apellido}</p>
+                        <p className="text-xs text-slate-400">{c.email}</p>
+                      </div>
+                      <span className={est.cls}>{est.label}</span>
+                      {c.fecha_completado&&(
+                        <span className="text-xs text-slate-400">{new Date(c.fecha_completado).toLocaleDateString('es-DO')}</span>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -436,9 +386,15 @@ function ProcesoRow({ proceso, onInvitar }) {
 // ── Página principal ─────────────────────────────────────────
 export default function ProcesosRRHH() {
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const [modalProceso, setModalProceso] = useState(false);
   const [modalInvitar, setModalInvitar] = useState(null);
+  const [eliminando,    setEliminando]    = useState(null);
+
+  const eliminarMut = useMutation({
+    mutationFn: id => api.delete(`/rrhh/procesos/${id}`),
+    onSuccess: () => { qc.invalidateQueries(['rrhh-procesos']); setEliminando(null); },
+    onError: err => alert(err.response?.data?.error || 'Error al eliminar'),
+  });
   const [filtroCliente, setFiltroCliente] = useState('');
 
   const { data: procesos=[], isLoading } = useQuery({
@@ -515,7 +471,7 @@ export default function ProcesosRRHH() {
               </tr>
             </thead>
             <tbody>
-              {procesosFiltrados.map(p=><ProcesoRow key={p.id} proceso={p} onInvitar={setModalInvitar}/>)}
+              {procesosFiltrados.map(p=><ProcesoRow key={p.id} proceso={p} onInvitar={setModalInvitar} onEliminar={setEliminando}/>)}
               {procesosFiltrados.length===0&&(
                 <tr><td colSpan={7} className="px-6 py-12 text-center">
                   <ClipboardList className="w-10 h-10 text-slate-200 mx-auto mb-3"/>
@@ -532,6 +488,27 @@ export default function ProcesosRRHH() {
 
       {modalProceso&&<ModalProceso clientes={clientes} pruebas={pruebas} onClose={()=>setModalProceso(false)} onSave={invalidar}/>}
       {modalInvitar&&<ModalInvitar proceso={modalInvitar} onClose={()=>setModalInvitar(null)} onSave={invalidar}/>}
+      {eliminando && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
+            <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Trash2 className="w-6 h-6 text-red-600"/>
+            </div>
+            <h3 className="text-base font-bold text-slate-900 mb-2">¿Eliminar proceso?</h3>
+            <p className="text-sm text-slate-500 mb-2"><strong>{eliminando.nombre}</strong> será eliminado permanentemente.</p>
+            <p className="text-xs text-red-500 bg-red-50 px-3 py-2 rounded-lg mb-6">Se eliminarán todos los candidatos y resultados asociados.</p>
+            <div className="flex gap-3">
+              <button onClick={()=>setEliminando(null)} className="btn-secondary flex-1 justify-center">Cancelar</button>
+              <button
+                onClick={()=>eliminarMut.mutate(eliminando.id)}
+                disabled={eliminarMut.isPending}
+                className="flex-1 justify-center bg-red-600 hover:bg-red-700 text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-all">
+                {eliminarMut.isPending ? 'Eliminando...' : 'Sí, eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

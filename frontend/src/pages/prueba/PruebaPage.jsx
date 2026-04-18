@@ -643,31 +643,10 @@ export default function PruebaPage() {
             <CheckCircle className="w-8 h-8 text-emerald-600" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">¡Evaluación completada!</h1>
-          <p className="text-slate-500 text-sm">Aquí están tus resultados de personalidad</p>
+          <p className="text-slate-500 text-sm">Tu evaluación ha sido enviada al equipo de Recursos Humanos.</p>
         </div>
 
-        {/* Resultados por dimensión */}
-        {resultados.length > 0 && (
-          <div className="card p-6 mb-6">
-            <h2 className="text-sm font-bold text-slate-800 mb-5">Resultados por dimensión</h2>
-            <div className="space-y-4">
-              {resultados.map(r => (
-                <div key={r.dimension}>
-                  <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-sm font-semibold text-slate-700">{r.dimension}</span>
-                    <span className="text-sm font-bold text-slate-900">{r.puntaje_pct}%</span>
-                  </div>
-                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-1000 ${DIM_BAR[r.codigo] || 'bg-brand-600'}`}
-                      style={{ width: `${r.puntaje_pct}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+
 
         {/* Informe IA */}
         <div className="card overflow-hidden">

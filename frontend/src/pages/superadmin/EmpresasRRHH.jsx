@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import SelectorPaisCiudad from '../../components/ui/SelectorPaisCiudad';
 import { Plus, X, Building2, Trash2, ClipboardList, Pencil } from 'lucide-react';
 import api from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
@@ -26,13 +27,17 @@ function ModalCrear({ onClose, onSave }) {
           {[
             {k:'nombre',         l:'Nombre *',        t:'text'},
             {k:'email_contacto', l:'Email contacto',  t:'email'},
-            {k:'pais',           l:'País',            t:'text'},
-            {k:'ciudad',         l:'Ciudad',          t:'text'},
             {k:'ruc_nit',        l:'RUC / NIT',       t:'text'},
           ].map(f=>(
             <div key={f.k}><label className="label">{f.l}</label>
             <input type={f.t} value={form[f.k]} onChange={e=>set(f.k,e.target.value)} className="input"/></div>
           ))}
+          <SelectorPaisCiudad
+            pais={form.pais}
+            ciudad={form.ciudad}
+            onPaisChange={v=>set('pais',v)}
+            onCiudadChange={v=>set('ciudad',v)}
+          />
           <div className="border-t border-slate-100 pt-4">
             <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Usuario administrador</p>
             {[

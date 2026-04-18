@@ -15,16 +15,20 @@ import SuperadminPruebas     from './pages/superadmin/Pruebas';
 import PruebaDetalle         from './pages/superadmin/PruebaDetalle';
 
 // RRHH
-import RrhhDashboard      from './pages/rrhh/Dashboard';
-import RrhhClientes       from './pages/rrhh/EmpresasCliente';
-import RrhhLicencias      from './pages/rrhh/Licencias';
-import RrhhProcesos       from './pages/rrhh/Procesos';
-import RrhhReportes       from './pages/rrhh/Reportes';
-import RrhhAnalytics      from './pages/rrhh/Analytics';
-import RrhhCandidatos     from './pages/rrhh/Candidatos';
+import RrhhDashboard  from './pages/rrhh/Dashboard';
+import RrhhClientes   from './pages/rrhh/EmpresasCliente';
+import RrhhLicencias  from './pages/rrhh/Licencias';
+import RrhhProcesos   from './pages/rrhh/Procesos';
+import RrhhReportes    from './pages/rrhh/Reportes';
+import RrhhAnalytics   from './pages/rrhh/Analytics';
+import RrhhCandidatos      from './pages/rrhh/Candidatos';
 import RrhhBancoPruebas   from './pages/rrhh/BancoPruebas';
 import RrhhBancoDetalle   from './pages/rrhh/BancoPruebaDetalle';
 import RrhhUsuarios       from './pages/rrhh/UsuariosRRHH';
+import RrhhMapaTalento   from './pages/rrhh/MapaTalento';
+import ReportePDF        from './pages/rrhh/ReportePDF';
+import LogActividad      from './pages/rrhh/LogActividad';
+import Onboarding        from './pages/rrhh/Onboarding';
 import CompararCandidatos from './pages/rrhh/CompararCandidatos';
 
 // Empresa
@@ -53,6 +57,16 @@ function RolRedirect() {
   return <Navigate to={map[user.rol] || '/login'} replace />;
 }
 
+
+// Protege rutas según permisos del usuario RRHH
+function PermisosGuard({ permiso, children }) {
+  const { user } = useAuth();
+  if (!user || user.rol !== 'rrhh') return children;
+  const permisos = user.permisos || {};
+  if (permisos.administrador || permisos[permiso]) return children;
+  return <Navigate to="/rrhh" replace />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -74,8 +88,8 @@ export default function App() {
           <Route index               element={<SuperadminDashboard />} />
           <Route path="empresas"     element={<SuperadminEmpresas />} />
           <Route path="licencias"    element={<SuperadminLicencias />} />
-          <Route path="pruebas"      element={<SuperadminPruebas />} />
-          <Route path="pruebas/:id"  element={<PruebaDetalle />} />
+          <Route path="pruebas"         element={<SuperadminPruebas />} />
+          <Route path="pruebas/:id"     element={<PruebaDetalle />} />
         </Route>
 
         {/* ── RRHH ── */}
@@ -84,17 +98,21 @@ export default function App() {
             <DashboardLayout rol="rrhh" />
           </PrivateRoute>
         }>
-          <Route index                        element={<RrhhDashboard />} />
-          <Route path="clientes"              element={<RrhhClientes />} />
-          <Route path="licencias"             element={<RrhhLicencias />} />
-          <Route path="procesos"              element={<RrhhProcesos />} />
-          <Route path="candidatos"            element={<RrhhCandidatos />} />
-          <Route path="banco"                 element={<RrhhBancoPruebas />} />
-          <Route path="banco/:id"             element={<RrhhBancoDetalle />} />
+          <Route index                 element={<RrhhDashboard />} />
+          <Route path="clientes"       element={<RrhhClientes />} />
+          <Route path="licencias"      element={<RrhhLicencias />} />
+          <Route path="procesos"      element={<RrhhProcesos />} />
+          <Route path="candidatos"    element={<RrhhCandidatos />} />
+          <Route path="banco"          element={<PermisosGuard permiso="administrador"><RrhhBancoPruebas /></PermisosGuard>} />
+          <Route path="banco/:id"      element={<RrhhBancoDetalle />} />
+          <Route path="usuarios"         element={<PermisosGuard permiso="administrador"><RrhhUsuarios /></PermisosGuard>} />
+          <Route path="mapa-talento"     element={<PermisosGuard permiso="ver_reportes"><RrhhMapaTalento /></PermisosGuard>} />
+          <Route path="reporte/:id"       element={<ReportePDF />} />
+          <Route path="actividad"         element={<PermisosGuard permiso="administrador"><LogActividad /></PermisosGuard>} />
+          <Route path="onboarding"        element={<Onboarding />} />
           <Route path="procesos/:id/comparar" element={<CompararCandidatos />} />
-          <Route path="reportes"              element={<RrhhReportes />} />
-          <Route path="analytics"             element={<RrhhAnalytics />} />
-          <Route path="usuarios"              element={<RrhhUsuarios />} />
+          <Route path="reportes"      element={<RrhhReportes />} />
+          <Route path="analytics"     element={<RrhhAnalytics />} />
         </Route>
 
         {/* ── Empresa ── */}

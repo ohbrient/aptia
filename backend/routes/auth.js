@@ -18,12 +18,34 @@ router.post('/login', async (req, res) => {
       const { rows } = await db.query('SELECT * FROM superadmins WHERE email = $1 AND activo = true', [email.toLowerCase()]);
       if (rows.length) { user = rows[0]; tokenPayload = { id: user.id, rol: 'superadmin', nombre: user.nombre, email: user.email }; }
     } else if (rol === 'rrhh') {
-      const { rows } = await db.query(`SELECT u.*, e.nombre AS empresa_nombre, e.id AS empresa_id FROM usuarios_rrhh u JOIN empresas_rrhh e ON e.id = u.empresa_rrhh_id WHERE u.email = $1 AND u.activo = true AND e.activo = true`, [email.toLowerCase()]);
-      if (rows.length) { user = rows[0]; tokenPayload = { id: user.id, rol: 'rrhh', nombre: user.nombre, email: user.email, empresa_rrhh_id: user.empresa_id, empresa_nombre: user.empresa_nombre, sub_rol: user.rol }; }
+      const { rows } = await db.query(`
+        SELECT u.*, e.nombre AS empresa_nombre, e.id AS empresa_id
+        FROM usuarios_rrhh u
+        JOIN empresas_rrhh e ON e.id = u.empresa_rrhh_id
+        WHERE u.email = $1 AND u.activo = true AND e.activo = true
+      `, [email.toLowerCase()]);
+      if (rows.length) {
+        user = rows[0];
+        const esAdmin = user.rol === 'admin';
+        const permisos = esAdmin
+          ? { ver_candidatos: true, gestionar_procesos: true, invitar_candidatos: true, ver_reportes: true, administrador: true }
+          : (user.permisos || {});
+        tokenPayload = {
+          id: user.id, rol: 'rrhh', nombre: user.nombre, email: user.email,
+          empresa_rrhh_id: user.empresa_id, empresa_nombre: user.empresa_nombre,
+          sub_rol: user.rol, permisos,
+        };
+      }
     } else if (rol === 'empresa') {
-      const { rows } = await db.query(`SELECT u.*, e.nombre AS empresa_nombre, e.id AS empresa_id, e.empresa_rrhh_id FROM usuarios_empresa u JOIN empresas_cliente e ON e.id = u.empresa_cliente_id WHERE u.email = $1 AND u.activo = true AND e.activo = true`, [email.toLowerCase()]);
+      const { rows } = await db.query(`
+        SELECT u.*, e.nombre AS empresa_nombre, e.id AS empresa_id, e.empresa_rrhh_id
+        FROM usuarios_empresa u
+        JOIN empresas_cliente e ON e.id = u.empresa_cliente_id
+        WHERE u.email = $1 AND u.activo = true AND e.activo = true
+      `, [email.toLowerCase()]);
       if (rows.length) { user = rows[0]; tokenPayload = { id: user.id, rol: 'empresa', nombre: user.nombre, email: user.email, empresa_cliente_id: user.empresa_id, empresa_nombre: user.empresa_nombre, empresa_rrhh_id: user.empresa_rrhh_id, sub_rol: user.rol }; }
     } else { return res.status(400).json({ error: 'Rol invalido' }); }
+
     if (!user) return res.status(401).json({ error: 'Credenciales incorrectas' });
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return res.status(401).json({ error: 'Credenciales incorrectas' });
