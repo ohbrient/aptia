@@ -174,13 +174,7 @@ npm run dev
 ```
 La app arranca en `http://localhost:5173`
 
-### Credenciales por defecto
-
-| Rol | Email | Contraseña |
-|-----|-------|-----------|
-| Superadmin | admin@aptia.com.do | Soporte17* |
-
-> **Importante:** Cambia las credenciales por defecto antes de desplegar en producción.
+> **Importante:** Cambia las credenciales del superadmin antes de desplegar en producción.
 
 ---
 
