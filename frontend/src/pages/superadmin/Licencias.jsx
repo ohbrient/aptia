@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, X, Key, RefreshCw, Pencil, Trash2 } from 'lucide-react';
+import { Plus, X, Key, RefreshCw, Pencil, Trash2, Download, AlertCircle } from 'lucide-react';
 import api from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
 
@@ -36,7 +36,7 @@ function ModalLicencia({ onClose, onSave }) {
           <div><label className="label">Plan *</label>
             <select value={form.plan_id} onChange={e=>{ const p=planes.find(x=>x.id===e.target.value); set('plan_id',e.target.value); if(p) set('candidatos_total',p.max_candidatos); }} className="input">
               <option value="">Seleccionar plan...</option>
-              {planes.map(p=><option key={p.id} value={p.id}>{p.nombre} — {p.max_candidatos} candidatos (${p.precio})</option>)}
+              {planes.map(p=><option key={p.id} value={p.id}>{p.nombre} – {p.max_candidatos} candidatos (${p.precio})</option>)}
             </select>
           </div>
           <div><label className="label">Candidatos incluidos *</label>
@@ -52,8 +52,88 @@ function ModalLicencia({ onClose, onSave }) {
         </div>
         <div className="px-6 py-4 border-t border-slate-100 flex gap-3 justify-end">
           <button onClick={onClose} className="btn-secondary">Cancelar</button>
-          <button onClick={()=>mut.mutate(form)} disabled={mut.isPending||!form.empresa_rrhh_id||!form.candidatos_total||!form.fecha_vencimiento} className="btn-primary">
+          <button onClick={()=>mut.mutate({...form, candidatos_total: parseInt(form.candidatos_total)})} disabled={mut.isPending||!form.empresa_rrhh_id||!form.candidatos_total||!form.fecha_vencimiento} className="btn-primary">
             {mut.isPending?'Guardando...':'Crear licencia'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModalDescargarLlave({ licencia, onClose }) {
+  const [descargando, setDescargando] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleDescargar = async () => {
+    setDescargando(true);
+    try {
+      const response = await api.post(`/superadmin/licencias/${licencia.id}/descargar-archivo`, {}, {
+        responseType: 'blob'
+      });
+      
+      const blob = new Blob([response.data], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `aptia-license-${licencia.empresa_nombre.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      onClose();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al descargar archivo');
+    } finally {
+      setDescargando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">Descargar llave de licencia</h3>
+            <p className="text-xs text-slate-400 mt-0.5">{licencia.empresa_nombre}</p>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg"><X className="w-4 h-4 text-slate-400"/></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-700 flex gap-3">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5"/>
+            <div>
+              <p className="font-semibold mb-1">Llave de activación segura</p>
+              <p className="text-xs">Descarga este archivo y envíalo al cliente. Ellos lo cargarán en su panel para activar la licencia.</p>
+            </div>
+          </div>
+
+          <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-slate-500">Empresa:</span>
+              <span className="font-semibold text-slate-900">{licencia.empresa_nombre}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Plan:</span>
+              <span className="font-semibold text-slate-900">{licencia.plan_nombre}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Candidatos:</span>
+              <span className="font-semibold text-slate-900">{licencia.candidatos_total}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Vencimiento:</span>
+              <span className="font-semibold text-slate-900">{new Date(licencia.fecha_vencimiento).toLocaleDateString('es-DO')}</span>
+            </div>
+          </div>
+
+          {error && <p className="text-sm text-red-600 bg-red-50 px-4 py-3 rounded-lg">{error}</p>}
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 flex gap-3 justify-end">
+          <button onClick={onClose} className="btn-secondary">Cerrar</button>
+          <button onClick={handleDescargar} disabled={descargando} className="btn-primary flex items-center gap-2">
+            <Download className="w-4 h-4"/>
+            {descargando ? 'Descargando...' : 'Descargar llave'}
           </button>
         </div>
       </div>
@@ -247,6 +327,7 @@ export default function Licencias() {
   const [modalLic,  setModalLic]  = useState(false);
   const [modalPlan, setModalPlan] = useState(false);
   const [renovando,      setRenovando]      = useState(null);
+  const [descargando,    setDescargando]    = useState(null);
   const [editandoPlan,   setEditandoPlan]   = useState(null);
   const [eliminandoPlan, setEliminandoPlan] = useState(null);
   const [tab,       setTab]       = useState('licencias');
@@ -296,9 +377,14 @@ export default function Licencias() {
                   <td className="px-5 py-4 text-slate-600">{new Date(l.fecha_vencimiento).toLocaleDateString('es-DO')}</td>
                   <td className="px-5 py-4">{estadoBadge(l)}</td>
                   <td className="px-5 py-4">
-                    <button onClick={()=>setRenovando(l)} title="Renovar licencia" className="p-1.5 text-brand-600 hover:bg-brand-50 rounded-lg transition-colors">
-                      <RefreshCw className="w-4 h-4"/>
-                    </button>
+                    <div className="flex gap-1">
+                      <button onClick={()=>setDescargando(l)} title="Descargar llave de licencia" className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors">
+                        <Download className="w-4 h-4"/>
+                      </button>
+                      <button onClick={()=>setRenovando(l)} title="Renovar licencia" className="p-1.5 text-brand-600 hover:bg-brand-50 rounded-lg transition-colors">
+                        <RefreshCw className="w-4 h-4"/>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -359,9 +445,10 @@ export default function Licencias() {
 
       {modalLic  && <ModalLicencia onClose={()=>setModalLic(false)}  onSave={invalidar}/>}
       {modalPlan && <ModalPlan     onClose={()=>setModalPlan(false)} onSave={invalidar}/>}
-      {renovando       && <ModalRenovar    licencia={renovando}        onClose={()=>setRenovando(null)}      onSave={invalidar}/>}
-      {editandoPlan   && <ModalEditarPlan  plan={editandoPlan}    onClose={()=>setEditandoPlan(null)}   onSave={invalidar}/>}
-      {eliminandoPlan && <ModalEliminarPlan plan={eliminandoPlan}  onClose={()=>setEliminandoPlan(null)} onSave={invalidar}/>}
+      {descargando     && <ModalDescargarLlave licencia={descargando}      onClose={()=>setDescargando(null)}/>}
+      {renovando       && <ModalRenovar        licencia={renovando}        onClose={()=>setRenovando(null)}      onSave={invalidar}/>}
+      {editandoPlan    && <ModalEditarPlan     plan={editandoPlan}    onClose={()=>setEditandoPlan(null)}   onSave={invalidar}/>}
+      {eliminandoPlan  && <ModalEliminarPlan   plan={eliminandoPlan}  onClose={()=>setEliminandoPlan(null)} onSave={invalidar}/>}
     </div>
   );
 }

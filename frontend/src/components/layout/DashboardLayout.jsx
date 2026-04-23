@@ -2,7 +2,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
   ShieldCheck, LayoutDashboard, Building2, Key, ClipboardList,
-  Users, Users2, BarChart3, Map, Activity, LogOut, ChevronDown, Bell, Lock, AlertTriangle, X as XIcon
+  Users, Users2, BarChart3, Map, Activity, Zap, LogOut, ChevronDown, Bell, Lock, AlertTriangle, X as XIcon
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -134,10 +134,84 @@ function BannerLicencia({ rol }) {
 }
 
 
+
+// ── Banner demo ───────────────────────────────────────────────
+function BannerDemo({ rol, user }) {
+  if (rol !== 'rrhh') return null;
+
+  const { data: onboarding } = useQuery({
+    queryKey: ['rrhh-onboarding'],
+    queryFn: () => api.get('/rrhh/onboarding-status').then(r => r.data),
+    enabled: rol === 'rrhh',
+    staleTime: 1000 * 60 * 10,
+  });
+
+  if (!onboarding?.empresa?.es_demo) return null;
+
+  const expira = onboarding?.empresa?.demo_expira_at;
+  const dias = expira
+    ? Math.ceil((new Date(expira) - Date.now()) / (1000 * 60 * 60 * 24))
+    : 7;
+
+  if (dias <= 0) return null;
+
+  return (
+    <div className="bg-violet-600 text-white px-6 py-2.5 flex items-center gap-3 text-sm">
+      <Zap className="w-4 h-4 flex-shrink-0"/>
+      <p className="flex-1 font-medium">
+        Estás en modo <strong>DEMO</strong> — acceso completo por {dias} día{dias !== 1 ? 's' : ''} más.
+      </p>
+      <a href="mailto:ventas@aptia.io" className="bg-white text-violet-600 font-bold text-xs px-3 py-1.5 rounded-lg hover:bg-violet-50 flex-shrink-0">
+        Contratar ahora →
+      </a>
+    </div>
+  );
+}
+
+// ── Guard: demo expirado ──────────────────────────────────────
+function DemoExpiredGuard({ rol, children }) {
+  const { data: onboarding } = useQuery({
+    queryKey: ['rrhh-onboarding'],
+    queryFn: () => api.get('/rrhh/onboarding-status').then(r => r.data),
+    enabled: rol === 'rrhh',
+    staleTime: 1000 * 60 * 10,
+  });
+
+  if (rol !== 'rrhh') return children;
+  if (!onboarding?.empresa?.es_demo) return children;
+
+  const expira = onboarding?.empresa?.demo_expira_at;
+  if (!expira || new Date(expira) > Date.now()) return children;
+
+  return (
+    <div className="flex flex-1 items-center justify-center bg-slate-50 min-h-[calc(100vh-56px)]">
+      <div className="text-center max-w-md px-8">
+        <div className="w-20 h-20 bg-violet-100 rounded-3xl flex items-center justify-center mx-auto mb-6">
+          <Zap className="w-10 h-10 text-violet-600"/>
+        </div>
+        <h2 className="text-2xl font-bold text-slate-900 mb-3">Tu demo ha expirado</h2>
+        <p className="text-slate-500 mb-2">
+          El período de prueba de <strong>7 días</strong> ha finalizado.
+        </p>
+        <p className="text-slate-400 text-sm mb-8">
+          Contáctanos para contratar un plan y continuar usando Aptia con todos tus datos.
+        </p>
+        <a
+          href="mailto:ventas@aptia.io"
+          className="btn-primary inline-flex items-center gap-2"
+        >
+          <Zap className="w-4 h-4"/> Contratar Aptia
+        </a>
+      </div>
+    </div>
+  );
+}
+
 // ── Guard: bloquea acceso si licencia vencida ────────────────
 function LicenciaVencidaGuard({ rol, children }) {
   const { data: licencias = [] } = useQuery({
     queryKey: ['rrhh-licencias-banner'],
+    queryFn: () => api.get('/rrhh/licencias').then(r => r.data),
     enabled: rol === 'rrhh',
     staleTime: 1000 * 60 * 10,
   });
@@ -248,7 +322,9 @@ export default function DashboardLayout({ rol }) {
       </header>
 
       <BannerLicencia rol={rol} />
+      <BannerDemo rol={rol} user={user} />
 
+      <DemoExpiredGuard rol={rol}>
       <LicenciaVencidaGuard rol={rol}>
         <div className="flex flex-1">
           <aside className="w-56 bg-white border-r border-slate-200 flex flex-col py-4 sticky top-14 h-[calc(100vh-56px)] overflow-y-auto flex-shrink-0">
@@ -288,6 +364,7 @@ export default function DashboardLayout({ rol }) {
           </main>
         </div>
       </LicenciaVencidaGuard>
+      </DemoExpiredGuard>
 
       {cambiarPwd && <ModalCambiarPassword onClose={() => setCambiarPwd(false)} />}
     </div>
