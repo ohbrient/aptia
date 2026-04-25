@@ -23,6 +23,10 @@ app.use('/api/superadmin',    require('./routes/superadmin'));
 app.use('/api/rrhh',          require('./routes/rrhh'));
 app.use('/api/empresa',       require('./routes/empresa'));
 app.use('/api/prueba',        require('./routes/publico/prueba'));
+app.use('/api/rrhh/clima',   require('./routes/rrhh/clima'));
+app.use('/api/clima',        require('./routes/publico/clima'));
+app.use('/api/rrhh/eval360', require('./routes/rrhh/eval360'));
+app.use('/api/eval360',       require('./routes/publico/eval360'));
 
 // ── 404 ──────────────────────────────────────────────────────
 app.use((req, res) => {

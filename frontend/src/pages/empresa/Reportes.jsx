@@ -16,77 +16,9 @@ function formatInforme(text) {
   }).join('');
 }
 
+// Abre el nuevo ReportePDF en una pestaña aparte
 function generarPDF(c) {
-  const resultados = c.resultados || [];
-  const barras = resultados.map(r => {
-    const color = DIM_COLOR[r.codigo]||DIM_COLOR.default;
-    const bg    = DIM_BG[r.codigo]||DIM_BG.default;
-    const pct   = parseFloat(r.puntaje_pct)||0;
-    return `<div style="margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="background:${bg};color:${color};font-size:11px;font-weight:700;padding:2px 8px;border-radius:100px">${r.codigo}</span>
-          <span style="font-size:14px;font-weight:600;color:#0F172A">${r.dimension}</span>
-        </div>
-        <span style="font-size:15px;font-weight:700;color:${color}">${pct}%</span>
-      </div>
-      <div style="height:10px;background:#F1F5F9;border-radius:100px;overflow:hidden">
-        <div style="height:100%;width:${pct}%;background:${color};border-radius:100px"></div>
-      </div>
-      <span style="font-size:11px;color:#94A3B8;margin-top:3px;display:block">Nivel: ${(r.nivel||'').replace('_',' ')}</span>
-    </div>`;
-  }).join('');
-
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
-<title>Informe — ${c.nombre} ${c.apellido||''}</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:#fff;color:#0F172A}
-.page{max-width:800px;margin:0 auto;padding:40px}
-@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
-</head><body><div class="page">
-<div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:24px;border-bottom:2px solid #2563EB;margin-bottom:32px">
-  <div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-      <div style="background:#2563EB;color:#fff;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">A</div>
-      <span style="font-size:18px;font-weight:700;color:#0F172A">Aptia</span>
-    </div>
-    <h1 style="font-size:26px;font-weight:700;color:#0F172A;margin-bottom:4px">Informe de Evaluación</h1>
-    <p style="font-size:13px;color:#64748B">Reporte psicométrico confidencial</p>
-  </div>
-  <div style="text-align:right">
-    <p style="font-size:11px;color:#94A3B8;margin-bottom:2px">Fecha de evaluación</p>
-    <p style="font-size:13px;font-weight:600;color:#0F172A">${new Date(c.fecha_completado).toLocaleDateString('es-DO',{year:'numeric',month:'long',day:'numeric'})}</p>
-  </div>
-</div>
-<div style="background:#F8FAFC;border-radius:12px;padding:20px 24px;margin-bottom:28px;border:1px solid #E2E8F0">
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-    <div>
-      <p style="font-size:11px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Candidato</p>
-      <p style="font-size:18px;font-weight:700;color:#0F172A">${c.nombre} ${c.apellido||''}</p>
-      <p style="font-size:13px;color:#64748B">${c.email}</p>
-    </div>
-    <div>
-      <p style="font-size:11px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Proceso</p>
-      <p style="font-size:15px;font-weight:600;color:#0F172A">${c.proceso_nombre}</p>
-      <p style="font-size:13px;color:#64748B">${c.puesto||'Sin puesto definido'}</p>
-    </div>
-  </div>
-</div>
-${resultados.length>0?`<div style="margin-bottom:32px">
-  <h2 style="font-size:16px;font-weight:700;color:#0F172A;margin-bottom:20px;padding-bottom:8px;border-bottom:1px solid #E2E8F0">Resultados por dimensión</h2>
-  ${barras}</div>`:''}
-${c.informe?`<div style="margin-bottom:32px">
-  <h2 style="font-size:16px;font-weight:700;color:#0F172A;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #E2E8F0">Análisis psicológico</h2>
-  <div style="line-height:1.7">${formatInforme(c.informe)}</div></div>`:''}
-<div style="border-top:1px solid #E2E8F0;padding-top:20px;display:flex;justify-content:space-between">
-  <p style="font-size:11px;color:#94A3B8">Documento confidencial · Aptia</p>
-  <p style="font-size:11px;color:#94A3B8">Generado el ${new Date().toLocaleDateString('es-DO')}</p>
-</div>
-</div></body></html>`;
-
-  const win = window.open('','_blank');
-  win.document.write(html);
-  win.document.close();
-  win.onload = () => setTimeout(()=>win.print(), 500);
+  window.open(`/rrhh/reporte/${c.id}`, '_blank');
 }
 
 function ModalDetalle({ candidato: c, onClose }) {
@@ -244,7 +176,7 @@ export default function Reportes({ endpoint='/empresa/reportes', showEmpresa=fal
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
                         <button onClick={()=>setDetalle(r)} className="btn-secondary py-1.5 px-3 text-xs">Ver informe</button>
-                        <button onClick={()=>generarPDF(r)} title="PDF" className="p-1.5 text-brand-600 hover:bg-brand-50 rounded-lg transition-colors">
+                        <button onClick={()=>generarPDF(r)} title="Ver reporte completo" className="p-1.5 text-brand-600 hover:bg-brand-50 rounded-lg transition-colors">
                           <Download className="w-4 h-4"/>
                         </button>
                       </div>
