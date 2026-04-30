@@ -9,6 +9,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../services/api';
 import ModalCambiarPassword from '../ui/ModalCambiarPassword';
+import { useLogActividad } from '../../hooks/useLogActividad';
 
 const NAV = {
   superadmin: [
@@ -176,13 +177,31 @@ export default function DashboardLayout({ rol }) {
   const [cambiarPwd, setCambiarPwd] = useState(false);
   const menuRef = useRef(null);
 
+  // ── Registro automático de navegación ───────────────────────
+  useLogActividad();
+
   useEffect(()=>{
     const handler = e=>{ if (menuRef.current&&!menuRef.current.contains(e.target)) setUserMenu(false); };
     document.addEventListener('mousedown', handler);
     return ()=>document.removeEventListener('mousedown', handler);
   },[]);
 
-  const handleLogout = e=>{ e.preventDefault(); e.stopPropagation(); logout(); navigate('/login',{replace:true}); };
+  const handleLogout = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (user?.rol === 'rrhh') {
+      try {
+        await api.post('/rrhh/actividad', {
+          tipo:        'sesion_cerrada',
+          descripcion: `${user.nombre} cerró sesión`,
+          metadata:    { email: user.email },
+        });
+      } catch {}
+    }
+    logout();
+    navigate('/login', { replace: true });
+  };
+
   const rolLabel = { superadmin:'Superadmin', rrhh:'Empresa RRHH', empresa:'Empresa' };
 
   return (

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, X, ClipboardList, Settings, Brain, Target, Zap, Briefcase, Code, Users, Star, Trash2 } from 'lucide-react';
+import { Plus, X, ClipboardList, Settings, Brain, Target, Zap, Briefcase, Code, Users, Star, Trash2, Lock, Eye } from 'lucide-react';
 import api from '../../services/api';
 import PageHeader from '../../components/ui/PageHeader';
 
@@ -16,7 +16,6 @@ const CATEGORIAS = [
 ];
 
 const ESCALAS = ['likert5','likert7','dicotomica','multiple','seleccion_forzada','abierta'];
-
 const ESCALA_INFO = {
   likert5:          { label: 'Likert 5',           emoji: '⭐', desc: 'Muy en desacuerdo → Muy de acuerdo. La más usada en personalidad y competencias.' },
   likert7:          { label: 'Likert 7',           emoji: '📊', desc: '7 niveles de acuerdo. Mayor precisión para clima laboral y satisfacción.' },
@@ -102,29 +101,27 @@ function ModalPrueba({ onClose, onSave }) {
   );
 }
 
-function DiscBadge() {
-  return (
-    <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
-      <Target className="w-3 h-3"/> DISC
-    </span>
-  );
-}
-
 export default function Pruebas() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [modalCrear,    setModalCrear]    = useState(false);
-  const [eliminando,    setEliminando]    = useState(null);
+  const [modalCrear,      setModalCrear]      = useState(false);
+  const [eliminando,      setEliminando]      = useState(null);
+  const [categoriaActiva, setCategoriaActiva] = useState('todas');
+  const [tabActivo,       setTabActivo]       = useState('mias'); // 'mias' | 'sistema'
 
   const eliminarMut = useMutation({
     mutationFn: id => api.delete(`/rrhh/banco/pruebas/${id}`),
     onSuccess: () => { invalidar(); setEliminando(null); },
   });
-  const [categoriaActiva, setCategoriaActiva] = useState('todas');
 
-  const { data: pruebas=[], isLoading } = useQuery({
+  const { data: pruebas=[], isLoading: loadingMias } = useQuery({
     queryKey: ['rrhh-banco-pruebas'],
     queryFn: ()=>api.get('/rrhh/banco/pruebas').then(r=>r.data),
+  });
+
+  const { data: pruebasSistema=[], isLoading: loadingSistema } = useQuery({
+    queryKey: ['rrhh-pruebas-disponibles'],
+    queryFn: ()=>api.get('/rrhh/pruebas-disponibles').then(r=>r.data),
   });
 
   const invalidar = ()=>qc.invalidateQueries(['rrhh-banco-pruebas']);
@@ -133,13 +130,65 @@ export default function Pruebas() {
     ? pruebas
     : pruebas.filter(p => (p.categoria||p.tipo) === categoriaActiva);
 
+  const sistemaSinDuplicados = pruebasSistema.filter(
+    ps => !pruebas.some(pm => pm.id === ps.id)
+  );
+
   const conteoCategoria = (key) => pruebas.filter(p => (p.categoria||p.tipo) === key).length;
+
+  const PruebaCard = ({ p, esSistema = false }) => {
+    const cat = CATEGORIAS.find(c=>c.key===(p.categoria||p.tipo)) || CATEGORIAS[0];
+    const CatIcon = cat.icon;
+    return (
+      <div className="card p-5 flex items-center gap-4 hover:shadow-sm transition-all">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{background:cat.bg}}>
+          <CatIcon className="w-5 h-5" style={{color:cat.color}}/>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <p className="font-semibold text-slate-800">{p.nombre}</p>
+            {esSistema && (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 flex items-center gap-1">
+                <Lock className="w-3 h-3"/> Sistema
+              </span>
+            )}
+            <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{background:cat.bg, color:cat.color}}>
+              {cat.label}
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 truncate">{p.descripcion || 'Sin descripción'}</p>
+        </div>
+        <div className="flex items-center gap-4 flex-shrink-0 text-xs text-slate-500">
+          <span>{p.total_items} ítems</span>
+          <span>{p.escala_tipo}</span>
+          {p.tiempo_limite && <span>{p.tiempo_limite} min</span>}
+          <span className={p.activa?'badge-green':'badge-gray'}>{p.activa?'Activa':'Inactiva'}</span>
+          <button
+            onClick={() => navigate(`/rrhh/banco/${p.id}${esSistema ? '?source=sistema' : ''}`)}
+            className="p-1.5 text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+            title={esSistema ? 'Ver y editar prueba' : 'Gestionar ítems'}
+          >
+            {esSistema ? <Eye className="w-4 h-4"/> : <Settings className="w-4 h-4"/>}
+          </button>
+          {!esSistema && (
+            <button
+              onClick={()=>setEliminando(p)}
+              className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+              title="Eliminar prueba"
+            >
+              <Trash2 className="w-4 h-4"/>
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="p-8">
       <PageHeader
-        title="Mi banco de pruebas"
-        subtitle="Crea y gestiona tus propias evaluaciones psicométricas"
+        title="Banco de pruebas"
+        subtitle="Gestiona tus pruebas propias y las asignadas por el sistema"
         action={
           <button onClick={()=>setModalCrear(true)} className="btn-primary">
             <Plus className="w-4 h-4"/> Nueva prueba
@@ -147,123 +196,104 @@ export default function Pruebas() {
         }
       />
 
-      {/* Grid de categorías */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      {/* Tabs principales */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl mb-6 w-fit">
         <button
-          onClick={()=>setCategoriaActiva('todas')}
-          className={`p-4 rounded-2xl border text-left transition-all ${categoriaActiva==='todas'?'border-brand-400 bg-brand-50':'border-slate-200 bg-white hover:border-slate-300'}`}
+          onClick={()=>setTabActivo('mias')}
+          className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tabActivo==='mias'?'bg-white text-brand-600 shadow-sm':'text-slate-500 hover:text-slate-700'}`}
         >
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Total</p>
-          <p className="text-2xl font-bold text-slate-900">{pruebas.length}</p>
-          <p className="text-xs text-slate-400 mt-1">todas las pruebas</p>
+          Mis pruebas ({pruebas.length})
         </button>
-        {CATEGORIAS.slice(0,3).map(cat=>(
-          <button
-            key={cat.key}
-            onClick={()=>setCategoriaActiva(cat.key)}
-            className={`p-4 rounded-2xl border text-left transition-all ${categoriaActiva===cat.key?'border-2':'border-slate-200 bg-white hover:border-slate-300'}`}
-            style={categoriaActiva===cat.key?{borderColor:cat.color, background:cat.bg}:{}}
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <cat.icon className="w-4 h-4" style={{color:cat.color}}/>
-              <p className="text-xs font-bold uppercase tracking-wider" style={{color:cat.color}}>{cat.label}</p>
-            </div>
-            <p className="text-2xl font-bold text-slate-900">{conteoCategoria(cat.key)}</p>
-            <p className="text-xs text-slate-400 mt-1">{cat.desc}</p>
-          </button>
-        ))}
+        <button
+          onClick={()=>setTabActivo('sistema')}
+          className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tabActivo==='sistema'?'bg-white text-brand-600 shadow-sm':'text-slate-500 hover:text-slate-700'}`}
+        >
+          Pruebas del sistema ({sistemaSinDuplicados.length})
+        </button>
       </div>
 
-      {/* Tabs de categorías */}
-      <div className="flex gap-2 mb-5 flex-wrap">
-        {[{key:'todas',label:'Todas'},...CATEGORIAS].map(cat=>(
-          <button
-            key={cat.key}
-            onClick={()=>setCategoriaActiva(cat.key)}
-            className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${categoriaActiva===cat.key?'text-white':'bg-white border border-slate-200 text-slate-600 hover:border-slate-300'}`}
-            style={categoriaActiva===cat.key?{background:cat.color||'#2563EB'}:{}}
-          >
-            {cat.label}{cat.key!=='todas'?` (${conteoCategoria(cat.key)})`:''}
-          </button>
-        ))}
-      </div>
-
-      {/* Lista de pruebas */}
-      {isLoading ? <p className="text-slate-400 text-sm">Cargando...</p> : (
-        <div className="space-y-3">
-          {pruebasFiltradas.length === 0 ? (
-            <div className="card p-12 text-center">
-              <ClipboardList className="w-10 h-10 text-slate-200 mx-auto mb-3"/>
-              <p className="text-slate-400 text-sm">No hay pruebas en esta categoría</p>
-              <button onClick={()=>setModalCrear(true)} className="btn-primary mx-auto mt-4">
-                <Plus className="w-4 h-4"/> Crear primera prueba
+      {/* ── Tab: Mis pruebas ── */}
+      {tabActivo === 'mias' && (
+        <>
+          {/* Stats grid */}
+          <div className="grid grid-cols-4 gap-3 mb-6">
+            <button onClick={()=>setCategoriaActiva('todas')} className={`p-4 rounded-2xl border text-left transition-all ${categoriaActiva==='todas'?'border-brand-400 bg-brand-50':'border-slate-200 bg-white hover:border-slate-300'}`}>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Total</p>
+              <p className="text-2xl font-bold text-slate-900">{pruebas.length}</p>
+              <p className="text-xs text-slate-400 mt-1">todas las pruebas</p>
+            </button>
+            {CATEGORIAS.slice(0,3).map(cat=>(
+              <button key={cat.key} onClick={()=>setCategoriaActiva(cat.key)}
+                className={`p-4 rounded-2xl border text-left transition-all ${categoriaActiva===cat.key?'border-2':'border-slate-200 bg-white hover:border-slate-300'}`}
+                style={categoriaActiva===cat.key?{borderColor:cat.color, background:cat.bg}:{}}>
+                <div className="flex items-center gap-2 mb-2"><cat.icon className="w-4 h-4" style={{color:cat.color}}/><p className="text-xs font-bold uppercase tracking-wider" style={{color:cat.color}}>{cat.label}</p></div>
+                <p className="text-2xl font-bold text-slate-900">{conteoCategoria(cat.key)}</p>
+                <p className="text-xs text-slate-400 mt-1">{cat.desc}</p>
               </button>
+            ))}
+          </div>
+
+          {/* Filtros de categoría */}
+          <div className="flex gap-2 mb-5 flex-wrap">
+            {[{key:'todas',label:'Todas'},...CATEGORIAS].map(cat=>(
+              <button key={cat.key} onClick={()=>setCategoriaActiva(cat.key)}
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${categoriaActiva===cat.key?'text-white':'bg-white border border-slate-200 text-slate-600 hover:border-slate-300'}`}
+                style={categoriaActiva===cat.key?{background:cat.color||'#2563EB'}:{}}>
+                {cat.label}{cat.key!=='todas'?` (${conteoCategoria(cat.key)})`:''}
+              </button>
+            ))}
+          </div>
+
+          {loadingMias ? <p className="text-slate-400 text-sm">Cargando...</p> : (
+            <div className="space-y-3">
+              {pruebasFiltradas.length === 0 ? (
+                <div className="card p-12 text-center">
+                  <ClipboardList className="w-10 h-10 text-slate-200 mx-auto mb-3"/>
+                  <p className="text-slate-400 text-sm">No hay pruebas en esta categoría</p>
+                  <button onClick={()=>setModalCrear(true)} className="btn-primary mx-auto mt-4"><Plus className="w-4 h-4"/> Crear primera prueba</button>
+                </div>
+              ) : pruebasFiltradas.map(p => <PruebaCard key={p.id} p={p} esSistema={false}/>)}
             </div>
-          ) : pruebasFiltradas.map(p => {
-            const cat = CATEGORIAS.find(c=>c.key===(p.categoria||p.tipo)) || CATEGORIAS[0];
-            const CatIcon = cat.icon;
-            return (
-              <div key={p.id} className="card p-5 flex items-center gap-4 hover:shadow-sm transition-all">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{background:cat.bg}}>
-                  <CatIcon className="w-5 h-5" style={{color:cat.color}}/>
+          )}
+        </>
+      )}
+
+      {/* ── Tab: Pruebas del sistema ── */}
+      {tabActivo === 'sistema' && (
+        <>
+          <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-5 flex items-start gap-3">
+            <Lock className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0"/>
+            <div>
+              <p className="text-sm font-semibold text-blue-800">Pruebas asignadas por el sistema</p>
+              <p className="text-xs text-blue-600 mt-0.5">Puedes ver todas las preguntas, modificar el tiempo límite y editar las preguntas de estas pruebas.</p>
+            </div>
+          </div>
+
+          {loadingSistema ? <p className="text-slate-400 text-sm">Cargando...</p> : (
+            <div className="space-y-3">
+              {sistemaSinDuplicados.length === 0 ? (
+                <div className="card p-12 text-center">
+                  <ClipboardList className="w-10 h-10 text-slate-200 mx-auto mb-3"/>
+                  <p className="text-slate-400 text-sm">No tienes pruebas del sistema asignadas</p>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <p className="font-semibold text-slate-800">{p.nombre}</p>
-                    {p.es_disc && <DiscBadge/>}
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold`}
-                      style={{background:cat.bg, color:cat.color}}>
-                      {cat.label}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400 truncate">{p.descripcion || 'Sin descripción'}</p>
-                </div>
-                <div className="flex items-center gap-4 flex-shrink-0 text-xs text-slate-500">
-                  <span>{p.total_items} ítems</span>
-                  <span>{p.escala_tipo}</span>
-                  {p.tiempo_limite && <span>{p.tiempo_limite} min</span>}
-                  <span className={p.activa?'badge-green':'badge-gray'}>{p.activa?'Activa':'Inactiva'}</span>
-                  <button
-                    onClick={()=>navigate(`/rrhh/banco/${p.id}`)}
-                    className="p-1.5 text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
-                    title="Gestionar ítems"
-                  >
-                    <Settings className="w-4 h-4"/>
-                  </button>
-                  <button
-                    onClick={()=>setEliminando(p)}
-                    className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Eliminar prueba"
-                  >
-                    <Trash2 className="w-4 h-4"/>
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              ) : sistemaSinDuplicados.map(p => <PruebaCard key={p.id} p={p} esSistema={true}/>)}
+            </div>
+          )}
+        </>
       )}
 
       {modalCrear && <ModalPrueba onClose={()=>setModalCrear(false)} onSave={invalidar}/>}
 
-      {/* Modal confirmar eliminar */}
       {eliminando && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
-            <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Trash2 className="w-6 h-6 text-red-600"/>
-            </div>
+            <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4"><Trash2 className="w-6 h-6 text-red-600"/></div>
             <h3 className="text-base font-bold text-slate-900 mb-2">¿Eliminar prueba?</h3>
-            <p className="text-sm text-slate-500 mb-6">
-              <strong>{eliminando.nombre}</strong> y todos sus ítems y dimensiones serán eliminados permanentemente.
-            </p>
+            <p className="text-sm text-slate-500 mb-6"><strong>{eliminando.nombre}</strong> y todos sus ítems y dimensiones serán eliminados permanentemente.</p>
             <div className="flex gap-3">
               <button onClick={()=>setEliminando(null)} className="btn-secondary flex-1 justify-center">Cancelar</button>
-              <button
-                onClick={()=>eliminarMut.mutate(eliminando.id)}
-                disabled={eliminarMut.isPending}
-                className="flex-1 justify-center bg-red-600 hover:bg-red-700 text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-all flex items-center gap-2"
-              >
+              <button onClick={()=>eliminarMut.mutate(eliminando.id)} disabled={eliminarMut.isPending}
+                className="flex-1 justify-center bg-red-600 hover:bg-red-700 text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-all">
                 {eliminarMut.isPending ? 'Eliminando...' : 'Sí, eliminar'}
               </button>
             </div>

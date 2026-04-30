@@ -51,6 +51,24 @@ router.post('/login', async (req, res) => {
     if (!ok) return res.status(401).json({ error: 'Credenciales incorrectas' });
     const table = rol === 'superadmin' ? 'superadmins' : rol === 'rrhh' ? 'usuarios_rrhh' : 'usuarios_empresa';
     await db.query(`UPDATE ${table} SET ultimo_login = NOW() WHERE id = $1`, [user.id]);
+
+    // ── Log de inicio de sesión (solo RRHH) ──────────────────
+    if (rol === 'rrhh') {
+      try {
+        await db.query(
+          `INSERT INTO activity_log (empresa_rrhh_id, usuario_id, usuario_nombre, tipo, descripcion, metadata)
+           VALUES ($1, $2, $3, 'sesion_iniciada', $4, $5)`,
+          [
+            tokenPayload.empresa_rrhh_id,
+            user.id,
+            user.nombre,
+            `${user.nombre} inició sesión`,
+            JSON.stringify({ email: user.email, sub_rol: user.rol, ip: req.ip })
+          ]
+        );
+      } catch(e) { console.error('[log login]', e.message); }
+    }
+
     return res.json({ token: sign(tokenPayload), user: tokenPayload });
   } catch (err) { console.error('[auth/login]', err); return res.status(500).json({ error: 'Error interno' }); }
 });

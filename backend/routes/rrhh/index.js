@@ -6,7 +6,6 @@ const licensing = require('../../services/licensingService');
 
 router.use(auth, checkRol('rrhh'));
 
-
 // ── Helper: registrar actividad ──────────────────────────────
 async function logActividad(db, empresa_rrhh_id, usuario, tipo, descripcion, metadata = {}) {
   try {
@@ -37,10 +36,10 @@ router.get('/dashboard', async (req, res) => {
                 WHERE e.empresa_rrhh_id=$1 AND p.estado='activo'`, [empresa_rrhh_id]),
     ]);
     res.json({
-      empresas_cliente:   parseInt(clientes.rows[0].count),
-      candidatos_evaluados: parseInt(candidatos.rows[0].count),
+      empresas_cliente:      parseInt(clientes.rows[0].count),
+      candidatos_evaluados:  parseInt(candidatos.rows[0].count),
       licencias_disponibles: parseInt(licencia.rows[0].disponibles),
-      procesos_activos:   parseInt(procesos.rows[0].count),
+      procesos_activos:      parseInt(procesos.rows[0].count),
     });
   } catch (err) {
     res.status(500).json({ error: 'Error en dashboard RRHH' });
@@ -384,32 +383,32 @@ router.get('/procesos/:id/comparar', async (req, res) => {
     );
     if (!proceso) return res.status(403).json({ error: 'No autorizado' });
     const { rows } = await db.query(`
-        SELECT c.id, c.nombre, c.apellido, c.email, c.estado, c.fecha_completado,
-          AVG(sp.match_score) AS match_score,
-          MAX(sp.match_nivel) AS match_nivel,
-          json_agg(DISTINCT jsonb_build_object(
-            'prueba_id',   pr.id,
-            'prueba_nombre', pr.nombre,
-            'prueba_tipo', pr.tipo
-          )) FILTER (WHERE pr.id IS NOT NULL) AS pruebas,
-          json_agg(json_build_object(
-            'prueba_nombre', pr.nombre,
-            'prueba_tipo',   pr.tipo,
-            'dimension',     d.nombre,
-            'codigo',        d.codigo,
-            'puntaje_pct',   ROUND(r.puntaje_pct::numeric,1),
-            'nivel',         r.nivel,
-            'orden',         d.orden
-          ) ORDER BY pr.nombre, d.orden) FILTER (WHERE r.id IS NOT NULL) AS resultados
-        FROM candidatos c
-        LEFT JOIN sesiones_prueba sp ON sp.candidato_id=c.id AND sp.estado='completada'
-        LEFT JOIN pruebas pr ON pr.id=sp.prueba_id
-        LEFT JOIN resultados r ON r.sesion_id=sp.id
-        LEFT JOIN dimensiones d ON d.id=r.dimension_id
-        WHERE c.proceso_id=$1 AND c.estado='completado'
-        GROUP BY c.id
-        ORDER BY c.fecha_completado DESC
-      `, [req.params.id]);
+      SELECT c.id, c.nombre, c.apellido, c.email, c.estado, c.fecha_completado,
+        AVG(sp.match_score) AS match_score,
+        MAX(sp.match_nivel) AS match_nivel,
+        json_agg(DISTINCT jsonb_build_object(
+          'prueba_id',     pr.id,
+          'prueba_nombre', pr.nombre,
+          'prueba_tipo',   pr.tipo
+        )) FILTER (WHERE pr.id IS NOT NULL) AS pruebas,
+        json_agg(json_build_object(
+          'prueba_nombre', pr.nombre,
+          'prueba_tipo',   pr.tipo,
+          'dimension',     d.nombre,
+          'codigo',        d.codigo,
+          'puntaje_pct',   ROUND(r.puntaje_pct::numeric,1),
+          'nivel',         r.nivel,
+          'orden',         d.orden
+        ) ORDER BY pr.nombre, d.orden) FILTER (WHERE r.id IS NOT NULL) AS resultados
+      FROM candidatos c
+      LEFT JOIN sesiones_prueba sp ON sp.candidato_id=c.id AND sp.estado='completada'
+      LEFT JOIN pruebas pr ON pr.id=sp.prueba_id
+      LEFT JOIN resultados r ON r.sesion_id=sp.id
+      LEFT JOIN dimensiones d ON d.id=r.dimension_id
+      WHERE c.proceso_id=$1 AND c.estado='completado'
+      GROUP BY c.id
+      ORDER BY c.fecha_completado DESC
+    `, [req.params.id]);
     res.json({ proceso, candidatos: rows });
   } catch(err) {
     console.error(err);
@@ -679,6 +678,83 @@ router.post('/candidatos/:id/reenviar', async (req, res) => {
   } catch(err) {
     console.error('[reenviar]', err.message);
     res.status(500).json({ error: 'Error al reenviar el link' });
+  }
+});
+
+// ── PATCH /api/rrhh/candidatos/:id ───────────────────────────
+router.patch('/candidatos/:id', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  const { nombre, apellido, email, telefono, cedula, fecha_nacimiento, genero, ciudad, pais, linkedin, notas } = req.body;
+  try {
+    const { rows: [check] } = await db.query(`
+      SELECT c.id FROM candidatos c
+      JOIN procesos p ON p.id = c.proceso_id
+      JOIN empresas_cliente ec ON ec.id = p.empresa_cliente_id
+      WHERE c.id = $1 AND ec.empresa_rrhh_id = $2
+    `, [req.params.id, empresa_rrhh_id]);
+    if (!check) return res.status(404).json({ error: 'Candidato no encontrado' });
+    const { rows: [candidato] } = await db.query(`
+      UPDATE candidatos SET
+        nombre           = COALESCE($1, nombre),
+        apellido         = COALESCE($2, apellido),
+        email            = COALESCE($3, email),
+        telefono         = $4,
+        cedula           = $5,
+        fecha_nacimiento = $6,
+        genero           = $7,
+        ciudad           = $8,
+        pais             = $9,
+        linkedin         = $10,
+        notas            = $11
+      WHERE id = $12
+      RETURNING *
+    `, [nombre, apellido, email, telefono||null, cedula||null, fecha_nacimiento||null, genero||null, ciudad||null, pais||null, linkedin||null, notas||null, req.params.id]);
+    res.json(candidato);
+  } catch (err) {
+    console.error('[PATCH candidato]', err.message);
+    res.status(500).json({ error: 'Error al actualizar candidato' });
+  }
+});
+
+// ── PATCH /api/rrhh/candidatos/:id/etapa ─────────────────────
+router.patch('/candidatos/:id/etapa', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  const { etapa_reclutamiento } = req.body;
+  const etapasValidas = ['entrevistado', 'contratado', 'no_contratado', null];
+  if (!etapasValidas.includes(etapa_reclutamiento))
+    return res.status(400).json({ error: 'Etapa inválida' });
+  try {
+    const { rows: [check] } = await db.query(
+      `SELECT c.id FROM candidatos c
+       JOIN procesos p ON p.id = c.proceso_id
+       JOIN empresas_cliente ec ON ec.id = p.empresa_cliente_id
+       WHERE c.id = $1 AND ec.empresa_rrhh_id = $2`,
+      [req.params.id, empresa_rrhh_id]
+    );
+    if (!check) return res.status(404).json({ error: 'Candidato no encontrado' });
+    await db.query('UPDATE candidatos SET etapa_reclutamiento = $1 WHERE id = $2', [etapa_reclutamiento, req.params.id]);
+    res.json({ ok: true });
+  } catch(err) {
+    console.error('[PATCH etapa]', err.message);
+    res.status(500).json({ error: 'Error al actualizar etapa' });
+  }
+});
+
+// ── POST /api/rrhh/actividad ─────────────────────────────────
+router.post('/actividad', async (req, res) => {
+  const { empresa_rrhh_id, id: usuario_id, nombre: usuario_nombre } = req.user;
+  const { tipo, descripcion, metadata } = req.body;
+  if (!tipo || !descripcion) return res.status(400).json({ error: 'tipo y descripcion requeridos' });
+  try {
+    await db.query(
+      `INSERT INTO activity_log (empresa_rrhh_id, usuario_id, usuario_nombre, tipo, descripcion, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [empresa_rrhh_id, usuario_id, usuario_nombre, tipo, descripcion, JSON.stringify(metadata || {})]
+    );
+    res.json({ ok: true });
+  } catch(err) {
+    console.error('[POST actividad]', err.message);
+    res.status(500).json({ error: 'Error al registrar actividad' });
   }
 });
 
@@ -981,63 +1057,45 @@ router.delete('/procesos/:id', async (req, res) => {
 // LICENCIAS
 // ══════════════════════════════════════════════════════════════
 
-// ── POST /api/rrhh/licencias/cargar-archivo ──────────────────
 router.post('/licencias/cargar-archivo', async (req, res) => {
   const { empresa_rrhh_id } = req.user;
   const { fileContent } = req.body;
-
   if (!fileContent) return res.status(400).json({ error: 'Archivo requerido' });
-
   try {
     const licenseFile = licensing.parseLicenseFile(fileContent);
-
-    // ✅ FIX: usar licenseFile.signature (JWT), NO licenseFile.license (objeto)
     const validation = licensing.validateLicenseToken(licenseFile.signature);
     if (!validation.valid) {
-      return res.status(400).json({
-        error: 'Archivo de licencia inválido o expirado',
-        detalle: validation.error
-      });
+      return res.status(400).json({ error: 'Archivo de licencia inválido o expirado', detalle: validation.error });
     }
-
     const licenseData = validation.data;
-
     if (licenseData.empresaId !== empresa_rrhh_id) {
       return res.status(403).json({ error: 'Esta licencia no corresponde a tu empresa' });
     }
-
     const { rows: existing } = await db.query(
-  'SELECT id, activa FROM licencias WHERE id=$1 AND empresa_rrhh_id=$2',
-  [licenseData.licenseId, empresa_rrhh_id]
-);
-if (existing.length > 0 && existing[0].activa === true) {
-  return res.status(400).json({ error: 'Esta licencia ya está activa en el sistema' });
-}
-
-    // Buscar plan más cercano al maxCandidates, o usar cualquier plan activo
+      'SELECT id, activa FROM licencias WHERE id=$1 AND empresa_rrhh_id=$2',
+      [licenseData.licenseId, empresa_rrhh_id]
+    );
+    if (existing.length > 0 && existing[0].activa === true) {
+      return res.status(400).json({ error: 'Esta licencia ya está activa en el sistema' });
+    }
     const { rows: [plan] } = await db.query(
       `SELECT id FROM planes WHERE activo=true ORDER BY ABS(max_candidatos - $1) LIMIT 1`,
       [licenseData.maxCandidates]
     );
-
     const { rows: [license] } = await db.query(`
       INSERT INTO licencias (id, empresa_rrhh_id, plan_id, candidatos_total, candidatos_usados, fecha_inicio, fecha_vencimiento, activa)
       VALUES ($1,$2,$3,$4,0,$5,$6,true)
       ON CONFLICT (id) DO UPDATE SET activa=true, updated_at=NOW()
       RETURNING *
     `, [licenseData.licenseId, empresa_rrhh_id, plan?.id||null, licenseData.maxCandidates, licenseData.startDate, licenseData.expiryDate]);
-
     await logActividad(db, empresa_rrhh_id, req.user, 'licencia_cargada',
       `Licencia activada: ${licenseData.empresaNombre}`,
       { licenseId: licenseData.licenseId, candidatos: licenseData.maxCandidates });
-
     res.status(201).json({
       ok: true,
       license: {
-        licenseId: license.id,
-        empresa: licenseData.empresaNombre,
-        candidatos: license.candidatos_total,
-        vencimiento: license.fecha_vencimiento,
+        licenseId: license.id, empresa: licenseData.empresaNombre,
+        candidatos: license.candidatos_total, vencimiento: license.fecha_vencimiento,
         activada: new Date().toISOString()
       }
     });
@@ -1047,8 +1105,6 @@ if (existing.length > 0 && existing[0].activa === true) {
   }
 });
 
-// ── GET /api/rrhh/licencias ─────────────────────────────────
-// Solo licencias activas
 router.get('/licencias', async (req, res) => {
   const { empresa_rrhh_id } = req.user;
   try {
@@ -1060,12 +1116,9 @@ router.get('/licencias', async (req, res) => {
       [empresa_rrhh_id]
     );
     res.json(rows);
-  } catch(err) {
-    res.status(500).json({ error: 'Error al obtener licencias' });
-  }
+  } catch(err) { res.status(500).json({ error: 'Error al obtener licencias' }); }
 });
 
-// ── GET /api/rrhh/licencias/estado ──────────────────────────
 router.get('/licencias/estado', async (req, res) => {
   const { empresa_rrhh_id } = req.user;
   try {
@@ -1080,45 +1133,30 @@ router.get('/licencias/estado', async (req, res) => {
       ORDER BY l.created_at DESC
     `, [empresa_rrhh_id]);
     res.json({ total: rows.length, licencias: rows });
-  } catch(err) {
-    res.status(500).json({ error: 'Error al obtener estado de licencias' });
-  }
+  } catch(err) { res.status(500).json({ error: 'Error al obtener estado de licencias' }); }
 });
 
+// ══════════════════════════════════════════════════════════════
+// PERFILES DE PUESTO
+// ══════════════════════════════════════════════════════════════
 
-// ══════════════════════════════════════════════════════════
-// ENDPOINTS PERFILES DE PUESTO — agregar al final de
-// backend/routes/rrhh/index.js (antes del module.exports)
-// ══════════════════════════════════════════════════════════
-
-// ── GET /api/rrhh/procesos/:id/perfil ────────────────────
-// Obtiene el perfil de puesto de un proceso (todas las pruebas)
 router.get('/procesos/:id/perfil', async (req, res) => {
   const { empresa_rrhh_id } = req.user;
   try {
-    // Verificar que el proceso pertenece a esta empresa
     const { rows: [proceso] } = await db.query(`
       SELECT p.id FROM procesos p
       JOIN empresas_cliente ec ON ec.id = p.empresa_cliente_id
       WHERE p.id = $1 AND ec.empresa_rrhh_id = $2
     `, [req.params.id, empresa_rrhh_id]);
     if (!proceso) return res.status(404).json({ error: 'Proceso no encontrado' });
-
-    // Obtener perfiles con sus dimensiones
     const { rows: perfiles } = await db.query(`
-      SELECT
-        pp.id, pp.proceso_id, pp.prueba_id, pp.nombre, pp.descripcion, pp.activo,
+      SELECT pp.id, pp.proceso_id, pp.prueba_id, pp.nombre, pp.descripcion, pp.activo,
         pr.nombre AS prueba_nombre, pr.tipo AS prueba_tipo,
-        json_agg(
-          json_build_object(
-            'id',             pd.id,
-            'dimension_id',   pd.dimension_id,
-            'dimension_nombre', d.nombre,
-            'dimension_codigo', d.codigo,
-            'puntaje_minimo', pd.puntaje_minimo,
-            'peso',           pd.peso
-          ) ORDER BY d.orden
-        ) FILTER (WHERE pd.id IS NOT NULL) AS dimensiones
+        json_agg(json_build_object(
+          'id', pd.id, 'dimension_id', pd.dimension_id,
+          'dimension_nombre', d.nombre, 'dimension_codigo', d.codigo,
+          'puntaje_minimo', pd.puntaje_minimo, 'peso', pd.peso
+        ) ORDER BY d.orden) FILTER (WHERE pd.id IS NOT NULL) AS dimensiones
       FROM perfiles_puesto pp
       JOIN pruebas pr ON pr.id = pp.prueba_id
       LEFT JOIN perfil_dimensiones pd ON pd.perfil_id = pp.id
@@ -1127,7 +1165,6 @@ router.get('/procesos/:id/perfil', async (req, res) => {
       GROUP BY pp.id, pr.nombre, pr.tipo
       ORDER BY pr.nombre
     `, [req.params.id]);
-
     res.json(perfiles);
   } catch (err) {
     console.error('[perfil GET]', err.message);
@@ -1135,28 +1172,19 @@ router.get('/procesos/:id/perfil', async (req, res) => {
   }
 });
 
-// ── POST /api/rrhh/procesos/:id/perfil ───────────────────
-// Crea o actualiza el perfil de una prueba en el proceso
-// Body: { prueba_id, nombre, descripcion, dimensiones: [{dimension_id, puntaje_minimo, peso}] }
 router.post('/procesos/:id/perfil', async (req, res) => {
   const { empresa_rrhh_id } = req.user;
   const { prueba_id, nombre, descripcion, dimensiones = [] } = req.body;
-
   if (!prueba_id) return res.status(400).json({ error: 'prueba_id requerido' });
-
   const client = await db.pool.connect();
   try {
-    // Verificar que el proceso pertenece a esta empresa
     const { rows: [proceso] } = await client.query(`
       SELECT p.id, p.puesto FROM procesos p
       JOIN empresas_cliente ec ON ec.id = p.empresa_cliente_id
       WHERE p.id = $1 AND ec.empresa_rrhh_id = $2
     `, [req.params.id, empresa_rrhh_id]);
     if (!proceso) return res.status(404).json({ error: 'Proceso no encontrado' });
-
     await client.query('BEGIN');
-
-    // Upsert perfil
     const { rows: [perfil] } = await client.query(`
       INSERT INTO perfiles_puesto (proceso_id, prueba_id, nombre, descripcion, activo)
       VALUES ($1, $2, $3, $4, true)
@@ -1164,34 +1192,24 @@ router.post('/procesos/:id/perfil', async (req, res) => {
       DO UPDATE SET nombre=$3, descripcion=$4, activo=true, updated_at=NOW()
       RETURNING *
     `, [req.params.id, prueba_id, nombre || proceso.puesto || 'Perfil del puesto', descripcion]);
-
-    // Eliminar dimensiones anteriores y reinsertar
     await client.query('DELETE FROM perfil_dimensiones WHERE perfil_id = $1', [perfil.id]);
-
     for (const dim of dimensiones) {
       if (!dim.dimension_id) continue;
-      await client.query(`
-        INSERT INTO perfil_dimensiones (perfil_id, dimension_id, puntaje_minimo, peso)
-        VALUES ($1, $2, $3, $4)
-      `, [perfil.id, dim.dimension_id, dim.puntaje_minimo ?? 60, dim.peso ?? 1]);
+      await client.query(
+        'INSERT INTO perfil_dimensiones (perfil_id, dimension_id, puntaje_minimo, peso) VALUES ($1,$2,$3,$4)',
+        [perfil.id, dim.dimension_id, dim.puntaje_minimo ?? 60, dim.peso ?? 1]
+      );
     }
-
     await client.query('COMMIT');
-
-    // Recalcular match para candidatos existentes del proceso
     await recalcularMatchProceso(req.params.id, prueba_id);
-
     res.status(201).json({ ok: true, perfil_id: perfil.id });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[perfil POST]', err.message);
     res.status(500).json({ error: 'Error al guardar perfil' });
-  } finally {
-    client.release();
-  }
+  } finally { client.release(); }
 });
 
-// ── DELETE /api/rrhh/procesos/:proceso_id/perfil/:prueba_id ─
 router.delete('/procesos/:proceso_id/perfil/:prueba_id', async (req, res) => {
   const { empresa_rrhh_id } = req.user;
   try {
@@ -1201,20 +1219,14 @@ router.delete('/procesos/:proceso_id/perfil/:prueba_id', async (req, res) => {
       WHERE p.id = $1 AND ec.empresa_rrhh_id = $2
     `, [req.params.proceso_id, empresa_rrhh_id]);
     if (!proceso) return res.status(404).json({ error: 'Proceso no encontrado' });
-
-    await db.query(`
-      UPDATE perfiles_puesto SET activo = false, updated_at = NOW()
-      WHERE proceso_id = $1 AND prueba_id = $2
-    `, [req.params.proceso_id, req.params.prueba_id]);
-
+    await db.query(
+      'UPDATE perfiles_puesto SET activo = false, updated_at = NOW() WHERE proceso_id = $1 AND prueba_id = $2',
+      [req.params.proceso_id, req.params.prueba_id]
+    );
     res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: 'Error al eliminar perfil' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Error al eliminar perfil' }); }
 });
 
-// ── GET /api/rrhh/procesos/:id/perfil/dimensiones-disponibles ─
-// Devuelve las dimensiones de cada prueba asignada al proceso
 router.get('/procesos/:id/perfil/dimensiones-disponibles', async (req, res) => {
   const { empresa_rrhh_id } = req.user;
   try {
@@ -1224,30 +1236,18 @@ router.get('/procesos/:id/perfil/dimensiones-disponibles', async (req, res) => {
       WHERE p.id = $1 AND ec.empresa_rrhh_id = $2
     `, [req.params.id, empresa_rrhh_id]);
     if (!proceso) return res.status(404).json({ error: 'Proceso no encontrado' });
-
     const { rows } = await db.query(`
-      SELECT
-        pr.id AS prueba_id,
-        pr.nombre AS prueba_nombre,
-        pr.tipo AS prueba_tipo,
-        json_agg(
-          json_build_object(
-            'id', d.id,
-            'nombre', d.nombre,
-            'codigo', d.codigo,
-            'orden', d.orden,
-            'interpretacion_alta', d.interpretacion_alta,
-            'interpretacion_baja', d.interpretacion_baja
-          ) ORDER BY d.orden
-        ) FILTER (WHERE d.id IS NOT NULL) AS dimensiones
+      SELECT pr.id AS prueba_id, pr.nombre AS prueba_nombre, pr.tipo AS prueba_tipo,
+        json_agg(json_build_object(
+          'id', d.id, 'nombre', d.nombre, 'codigo', d.codigo, 'orden', d.orden,
+          'interpretacion_alta', d.interpretacion_alta, 'interpretacion_baja', d.interpretacion_baja
+        ) ORDER BY d.orden) FILTER (WHERE d.id IS NOT NULL) AS dimensiones
       FROM proceso_pruebas pp
       JOIN pruebas pr ON pr.id = pp.prueba_id
       LEFT JOIN dimensiones d ON d.prueba_id = pr.id
       WHERE pp.proceso_id = $1
-      GROUP BY pr.id
-      ORDER BY pr.nombre
+      GROUP BY pr.id ORDER BY pr.nombre
     `, [req.params.id]);
-
     res.json(rows);
   } catch (err) {
     console.error('[perfil dims]', err.message);
@@ -1255,70 +1255,40 @@ router.get('/procesos/:id/perfil/dimensiones-disponibles', async (req, res) => {
   }
 });
 
-// ══════════════════════════════════════════════════════════
-// HELPER: Calcular match score
-// Llamar después de guardar resultados de una sesión
-// ══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// HELPERS: Match Score
+// ══════════════════════════════════════════════════════════════
+
 async function calcularMatchScore(sesion_id, proceso_id, prueba_id) {
   try {
-    // Obtener perfil activo para esta prueba en este proceso
-    const { rows: [perfil] } = await db.query(`
-      SELECT pp.id FROM perfiles_puesto pp
-      WHERE pp.proceso_id = $1 AND pp.prueba_id = $2 AND pp.activo = true
-      LIMIT 1
-    `, [proceso_id, prueba_id]);
-
-    if (!perfil) return null; // Sin perfil definido = sin match
-
-    // Obtener dimensiones del perfil con sus mínimos
-    const { rows: dimsPerf } = await db.query(`
-      SELECT pd.dimension_id, pd.puntaje_minimo, pd.peso
-      FROM perfil_dimensiones pd
-      WHERE pd.perfil_id = $1
-    `, [perfil.id]);
-
+    const { rows: [perfil] } = await db.query(
+      'SELECT pp.id FROM perfiles_puesto pp WHERE pp.proceso_id = $1 AND pp.prueba_id = $2 AND pp.activo = true LIMIT 1',
+      [proceso_id, prueba_id]
+    );
+    if (!perfil) return null;
+    const { rows: dimsPerf } = await db.query(
+      'SELECT pd.dimension_id, pd.puntaje_minimo, pd.peso FROM perfil_dimensiones pd WHERE pd.perfil_id = $1',
+      [perfil.id]
+    );
     if (!dimsPerf.length) return null;
-
-    // Obtener resultados del candidato para esta sesión
-    const { rows: resultados } = await db.query(`
-      SELECT r.dimension_id, r.puntaje_pct
-      FROM resultados r
-      WHERE r.sesion_id = $1
-    `, [sesion_id]);
-
+    const { rows: resultados } = await db.query(
+      'SELECT r.dimension_id, r.puntaje_pct FROM resultados r WHERE r.sesion_id = $1',
+      [sesion_id]
+    );
     const resultMap = {};
     resultados.forEach(r => { resultMap[r.dimension_id] = parseFloat(r.puntaje_pct) || 0; });
-
-    // Calcular match ponderado
-    let totalPeso = 0;
-    let matchPonderado = 0;
-
+    let totalPeso = 0, matchPonderado = 0;
     for (const dim of dimsPerf) {
       const puntajeCandidato = resultMap[dim.dimension_id] ?? 0;
-      const minimo  = parseFloat(dim.puntaje_minimo) || 60;
-      const peso    = parseFloat(dim.peso) || 1;
-
-      // Score por dimensión: qué % del mínimo requerido alcanzó
-      // Si supera el mínimo = 100% en esa dimensión
+      const minimo = parseFloat(dim.puntaje_minimo) || 60;
+      const peso   = parseFloat(dim.peso) || 1;
       const scoreDim = Math.min((puntajeCandidato / minimo) * 100, 100);
-
       matchPonderado += scoreDim * peso;
       totalPeso      += peso;
     }
-
     const match = totalPeso > 0 ? Math.round(matchPonderado / totalPeso) : 0;
-    const nivel =
-      match >= 80 ? 'alto'         :
-      match >= 60 ? 'medio'        :
-      match >= 40 ? 'bajo'         : 'no_compatible';
-
-    // Guardar match en la sesión
-    await db.query(`
-      UPDATE sesiones_prueba
-      SET match_score = $1, match_nivel = $2
-      WHERE id = $3
-    `, [match, nivel, sesion_id]);
-
+    const nivel = match >= 80 ? 'alto' : match >= 60 ? 'medio' : match >= 40 ? 'bajo' : 'no_compatible';
+    await db.query('UPDATE sesiones_prueba SET match_score = $1, match_nivel = $2 WHERE id = $3', [match, nivel, sesion_id]);
     return { match, nivel };
   } catch (err) {
     console.error('[calcularMatch]', err.message);
@@ -1326,7 +1296,6 @@ async function calcularMatchScore(sesion_id, proceso_id, prueba_id) {
   }
 }
 
-// Recalcular match para todos los candidatos completados de un proceso/prueba
 async function recalcularMatchProceso(proceso_id, prueba_id) {
   try {
     const { rows: sesiones } = await db.query(`
@@ -1335,18 +1304,137 @@ async function recalcularMatchProceso(proceso_id, prueba_id) {
       JOIN candidatos c ON c.id = sp.candidato_id
       WHERE c.proceso_id = $1 AND sp.prueba_id = $2 AND sp.estado = 'completada'
     `, [proceso_id, prueba_id]);
-
     for (const s of sesiones) {
       await calcularMatchScore(s.sesion_id, proceso_id, prueba_id);
     }
-
     console.log(`[match] Recalculados ${sesiones.length} scores para proceso ${proceso_id}`);
   } catch (err) {
     console.error('[recalcularMatch]', err.message);
   }
 }
 
+// ── GET /api/rrhh/pruebas/:id/dimensiones ────────────────────
+router.get('/pruebas/:id/dimensiones', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  try {
+    const { rows: [check] } = await db.query(
+      `SELECT 1 FROM rrhh_pruebas WHERE prueba_id=$1 AND empresa_rrhh_id=$2 AND habilitada=true`,
+      [req.params.id, empresa_rrhh_id]
+    );
+    if (!check) return res.status(403).json({ error: 'No autorizado' });
+    const { rows } = await db.query(
+      'SELECT * FROM dimensiones WHERE prueba_id=$1 ORDER BY orden',
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch(err) { res.status(500).json({ error: 'Error al obtener dimensiones' }); }
+});
 
+// ── GET /api/rrhh/pruebas/:id/items ──────────────────────────
+router.get('/pruebas/:id/items', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  try {
+    const { rows: [check] } = await db.query(
+      `SELECT 1 FROM rrhh_pruebas WHERE prueba_id=$1 AND empresa_rrhh_id=$2 AND habilitada=true`,
+      [req.params.id, empresa_rrhh_id]
+    );
+    if (!check) return res.status(403).json({ error: 'No autorizado' });
+    const { rows } = await db.query(`
+      SELECT i.*, d.nombre AS dimension_nombre, d.codigo AS dimension_codigo,
+        json_agg(json_build_object('id',op.id,'texto',op.texto,'valor',op.valor,'orden',op.orden) ORDER BY op.orden)
+          FILTER (WHERE op.id IS NOT NULL) AS opciones
+      FROM items i
+      LEFT JOIN dimensiones d ON d.id = i.dimension_id
+      LEFT JOIN opciones_item op ON op.item_id = i.id
+      WHERE i.prueba_id=$1
+      GROUP BY i.id, d.nombre, d.codigo ORDER BY i.orden
+    `, [req.params.id]);
+    res.json(rows);
+  } catch(err) { res.status(500).json({ error: 'Error al obtener items' }); }
+});
+
+// ── PATCH /api/rrhh/pruebas/:id/tiempo ───────────────────────
+router.patch('/pruebas/:id/tiempo', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  const { tiempo_limite } = req.body;
+  try {
+    const { rows: [check] } = await db.query(
+      `SELECT 1 FROM rrhh_pruebas WHERE prueba_id=$1 AND empresa_rrhh_id=$2 AND habilitada=true`,
+      [req.params.id, empresa_rrhh_id]
+    );
+    if (!check) return res.status(403).json({ error: 'No autorizado' });
+    await db.query(
+      'UPDATE pruebas SET tiempo_limite=$1 WHERE id=$2',
+      [tiempo_limite || null, req.params.id]
+    );
+    res.json({ ok: true });
+  } catch(err) { res.status(500).json({ error: 'Error al actualizar tiempo' }); }
+});
+
+// ── PUT /api/rrhh/pruebas/items/:itemId ──────────────────────
+router.put('/pruebas/items/:itemId', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  const { texto, dimension_id, orden, opciones } = req.body;
+  try {
+    const { rows: [check] } = await db.query(
+      `SELECT i.id FROM items i
+       JOIN rrhh_pruebas rp ON rp.prueba_id = i.prueba_id
+       WHERE i.id=$1 AND rp.empresa_rrhh_id=$2 AND rp.habilitada=true`,
+      [req.params.itemId, empresa_rrhh_id]
+    );
+    if (!check) return res.status(403).json({ error: 'No autorizado' });
+    await db.query('UPDATE items SET texto=$1, dimension_id=$2, orden=$3 WHERE id=$4',
+      [texto, dimension_id||null, orden, req.params.itemId]);
+    if (opciones?.length)
+      for (const op of opciones)
+        if (op.id) await db.query('UPDATE opciones_item SET texto=$1 WHERE id=$2', [op.texto, op.id]);
+    res.json({ ok: true });
+  } catch(err) { res.status(500).json({ error: 'Error al actualizar ítem' }); }
+});
+
+// ── GET /api/rrhh/banco/pruebas/:id ─────────────────────────
+router.get('/banco/pruebas/:id', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  try {
+    const { rows: [p] } = await db.query(
+      `SELECT p.*, COUNT(DISTINCT d.id) AS total_dimensiones, COUNT(DISTINCT i.id) AS total_items_real
+       FROM pruebas p
+       LEFT JOIN dimensiones d ON d.prueba_id = p.id
+       LEFT JOIN items i ON i.prueba_id = p.id
+       WHERE p.id = $1 AND p.empresa_rrhh_id = $2
+       GROUP BY p.id`,
+      [req.params.id, empresa_rrhh_id]
+    );
+    if (!p) return res.status(404).json({ error: 'Prueba no encontrada' });
+    res.json(p);
+  } catch(err) { res.status(500).json({ error: 'Error' }); }
+});
+
+// ── GET /api/rrhh/pruebas/:id/info ───────────────────────────
+router.get('/pruebas/:id/info', async (req, res) => {
+  const { empresa_rrhh_id } = req.user;
+  try {
+    const { rows: [check] } = await db.query(
+      `SELECT 1 FROM rrhh_pruebas WHERE prueba_id=$1 AND empresa_rrhh_id=$2 AND habilitada=true`,
+      [req.params.id, empresa_rrhh_id]
+    );
+    if (!check) return res.status(403).json({ error: 'No autorizado' });
+    const { rows: [p] } = await db.query(
+      `SELECT p.*, COUNT(DISTINCT d.id) AS total_dimensiones, COUNT(DISTINCT i.id) AS total_items_real
+       FROM pruebas p
+       LEFT JOIN dimensiones d ON d.prueba_id = p.id
+       LEFT JOIN items i ON i.prueba_id = p.id
+       WHERE p.id = $1
+       GROUP BY p.id`,
+      [req.params.id]
+    );
+    if (!p) return res.status(404).json({ error: 'Prueba no encontrada' });
+    res.json(p);
+  } catch(err) { res.status(500).json({ error: 'Error' }); }
+});
+
+// ══════════════════════════════════════════════════════════════
+// EXPORTS — solo una vez, al final
+// ══════════════════════════════════════════════════════════════
 module.exports = router;
 module.exports.calcularMatchScore = calcularMatchScore;
-
