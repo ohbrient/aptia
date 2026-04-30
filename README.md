@@ -8,7 +8,7 @@
 
 Aptia es una plataforma multi-tenant de evaluación psicométrica para empresas de RRHH en Latinoamérica. Permite gestionar procesos de reclutamiento, evaluar candidatos con pruebas psicométricas y generar informes con inteligencia artificial.
 
-**Producción:** `http://45.61.56.145`
+**Producción:** `(http://74.208.35.11/)`
 
 ---
 
@@ -228,14 +228,6 @@ DB_HOST=127.0.0.1
 - **Big Five (OCEAN)** — Personalidad con 5 dimensiones
 - **16PF** — 16 factores de personalidad
 - Banco extensible con 7 categorías: personalidad, comportamiento, inteligencia, competencias, laborales, técnica, 360°
-
----
-
-## Credenciales de acceso (desarrollo)
-
-| Rol | Email | Contraseña |
-|-----|-------|-----------|
-| Superadmin | admin@aptia.com.do | Soporte17* |
 
 ---
 
